@@ -1,0 +1,664 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Variações de Criativo</title>
+<style>
+  @font-face { font-family:"Anton"; src:url(/fonts/Anton-Regular.ttf) }
+  @font-face { font-family:"Bebas Neue"; src:url(/fonts/BebasNeue-Regular.ttf) }
+  @font-face { font-family:"Poppins ExtraBold"; src:url(/fonts/Poppins-ExtraBold.ttf) }
+  @font-face { font-family:"Archivo Black"; src:url(/fonts/ArchivoBlack-Regular.ttf) }
+  @font-face { font-family:"Bangers"; src:url(/fonts/Bangers-Regular.ttf) }
+  :root { --bg:#0f1115; --card:#181b22; --line:#2a2f3a; --txt:#e8eaf0; --mut:#8b92a3; --acc:#6d5efc; --ok:#2ecc71; --err:#ff5c5c; }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg); color:var(--txt); font:15px/1.4 system-ui,sans-serif; }
+  header { padding:20px 28px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap }
+  h1 { font-size:18px; margin:0 }
+  main { padding:24px 28px; max-width:1300px; margin:0 auto }
+  .cols { display:grid; grid-template-columns:repeat(3,1fr); gap:16px }
+  @media (max-width:800px){ .cols{grid-template-columns:1fr} }
+  .col { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px }
+  .col h2 { margin:0 0 10px; font-size:14px; text-transform:uppercase; letter-spacing:.06em; color:var(--mut); display:flex; justify-content:space-between }
+  .drop { border:2px dashed var(--line); border-radius:10px; padding:18px; text-align:center; color:var(--mut); cursor:pointer; transition:.15s }
+  .drop.over, .drop:hover { border-color:var(--acc); color:var(--txt) }
+  .clip { display:flex; gap:10px; align-items:center; margin-top:10px; padding:8px; border:1px solid var(--line); border-radius:8px }
+  .clip video { width:48px; height:84px; object-fit:cover; border-radius:6px; background:#000; flex:none }
+  .clip .n { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .clip small { color:var(--mut); display:block }
+  .clip small.ed { color:var(--acc) }
+  button { background:var(--acc); color:#fff; border:0; border-radius:8px; padding:10px 16px; font:inherit; font-weight:600; cursor:pointer }
+  button:disabled { opacity:.4; cursor:not-allowed }
+  button.sm { padding:6px 10px; font-size:13px }
+  button.line { background:transparent; border:1px solid var(--line); color:var(--txt) }
+  button.line:hover { border-color:var(--acc) }
+  button.ghost { background:transparent; color:var(--mut); padding:4px 8px; font-weight:400 }
+  button.ghost:hover { color:var(--err) }
+  section { margin-top:32px }
+  section > h2 { font-size:16px; margin:0 0 14px }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:14px }
+  .v { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px }
+  .v video { width:100%; aspect-ratio:9/16; background:#000; border-radius:8px }
+  .v .l { font-size:12px; color:var(--mut); margin:8px 0; min-height:32px; word-break:break-word }
+  .row { display:flex; justify-content:space-between; align-items:center }
+  .badge { font-size:12px; padding:2px 8px; border-radius:99px; background:var(--line) }
+  .badge.ready{ color:var(--ok) } .badge.error{ color:var(--err) }
+  a.dl { color:var(--acc); text-decoration:none; font-weight:600; font-size:13px }
+  .ph { aspect-ratio:9/16; display:grid; place-items:center; background:#0b0d11; border-radius:8px; color:var(--mut); font-size:13px; text-align:center; padding:8px }
+
+  /* ---------- editor ---------- */
+  #modal { position:fixed; inset:0; background:rgba(0,0,0,.72); display:none; z-index:10; overflow:auto; padding:20px }
+  #modal.open { display:block }
+  .ed { background:var(--bg); border:1px solid var(--line); border-radius:14px; max-width:1060px; margin:0 auto; display:grid; grid-template-columns:340px 1fr; gap:0 }
+  @media (max-width:860px){ .ed{grid-template-columns:1fr} }
+  .ed-left { padding:18px; border-right:1px solid var(--line) }
+  .ed-right { padding:18px; max-height:calc(100vh - 40px); overflow:auto }
+  .stage { position:relative; width:100%; aspect-ratio:9/16; background:#000; border-radius:10px; overflow:hidden }
+  .stage video { width:100%; height:100%; display:block }
+  #ov { position:absolute; inset:0; pointer-events:none; overflow:hidden }
+  #ov div { position:absolute; left:50%; transform:translate(-50%,-50%); width:86%; text-align:center; line-height:1.12; paint-order:stroke fill; word-break:break-word }
+  .ed h3 { margin:0 0 10px; font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--mut) }
+  .blk { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:14px }
+  .f { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; margin-top:10px }
+  label.fl { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--mut) }
+  input, select, textarea { background:#0f1115; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:6px 8px; font:inherit; width:100% }
+  input[type=color] { padding:0; height:32px }
+  input[type=checkbox] { width:auto }
+  input[type=range] { padding:0 }
+  .words { display:flex; flex-wrap:wrap; gap:4px; margin-top:12px; max-height:170px; overflow:auto }
+  .words input { width:auto; padding:3px 6px; font-size:13px; min-width:30px }
+  .txt { border:1px solid var(--line); border-radius:8px; padding:10px; margin-top:10px }
+  .hint { color:var(--mut); font-size:12px; margin-top:8px }
+  .bar { display:flex; gap:10px; justify-content:flex-end; margin-top:6px }
+  .inl { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+  .inl select { width:auto }
+  .ed.batch { grid-template-columns:1fr; max-width:660px }
+  .ed.batch.m-style { grid-template-columns:340px 1fr; max-width:1060px }
+  .ed.batch .only-one { display:none }
+  .ed.batch.m-batch .ed-left { display:none }
+  .ed:not(.batch) .only-multi { display:none }
+  .ed:not(.m-batch) .only-batch { display:none }
+  .ed:not(.m-style) .only-style { display:none }
+  .ed.m-style .no-style { display:none }
+  .frames { display:flex; gap:6px; overflow-x:auto; padding-bottom:4px }
+  .frames img { height:150px; border-radius:6px; border:1px solid var(--line) }
+  .refs { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:14px }
+  .rcard { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px; display:flex; gap:10px }
+  .rcard img { width:64px; height:114px; object-fit:cover; border-radius:6px; background:#000; flex:none }
+  .rcard .n { flex:1; min-width:0 }
+  .rcard .n b { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .rcard small { color:var(--mut); display:block; margin:4px 0 8px }
+  .refdrop { display:grid; place-items:center; min-height:114px }
+  .pick { padding:6px 8px }
+  .tools { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:0 0 14px }
+  .v { position:relative }
+  .v .sel { position:absolute; top:16px; left:16px; width:22px; height:22px; accent-color:var(--acc); z-index:2 }
+  .v.picked { border-color:var(--acc) }
+  .tag { font-size:11px; color:var(--acc) }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎬 Variações de Criativo</h1>
+  <div style="display:flex;gap:12px;align-items:center">
+    <span id="count" style="color:var(--mut)"></span>
+    <label class="inl" style="color:var(--mut);font-size:13px">Estilo:
+      <select id="genref" style="width:auto;max-width:180px"><option value="">sem referência</option></select>
+    </label>
+    <button id="gen" disabled>Gerar variações</button>
+  </div>
+</header>
+<main>
+  <div class="cols" id="cols"></div>
+  <section>
+    <h2>Referências <span style="color:var(--mut);font-weight:400;font-size:13px">(vídeos cujo estilo você quer copiar)</span></h2>
+    <div class="refs" id="refs"></div>
+  </section>
+  <section>
+    <h2>Variações geradas <span id="vcount" style="color:var(--mut);font-weight:400"></span></h2>
+    <div class="tools" id="tools" style="display:none">
+      <button class="sm line" id="selall">Selecionar todas</button>
+      <button class="sm" id="capsel" disabled>Legendar selecionadas</button>
+      <span class="hint" id="selinfo" style="margin:0"></span>
+    </div>
+    <div class="grid" id="vars"></div>
+  </section>
+</main>
+
+<div id="modal">
+  <div class="ed" id="edbox">
+    <div class="ed-left">
+      <div class="stage"><video id="pv" controls playsinline loop></video><div id="ov"></div></div>
+      <div class="hint">A prévia é aproximada. O resultado final (com animações) é renderizado ao salvar.</div>
+    </div>
+    <div class="ed-right">
+      <div class="row" style="margin-bottom:14px">
+        <strong id="edtitle" style="font-size:16px"></strong>
+        <div class="bar" style="margin:0">
+          <button class="line" id="cancel">Cancelar</button>
+          <button id="save">Salvar e renderizar</button>
+        </div>
+      </div>
+
+      <div class="blk only-batch">
+        <label class="fl">Estilo de referência
+          <select id="refsel"><option value="">Manual (sem referência)</option></select></label>
+        <div class="hint" id="refinfo"></div>
+      </div>
+      <div class="blk only-style">
+        <h3>Quadros da referência</h3>
+        <div class="frames" id="rframes"></div>
+        <div class="hint" id="rmetrics"></div>
+        <div class="hint">Use o conta-gotas (💧) ao lado das cores e clique em um quadro acima para copiar a cor exata.</div>
+      </div>
+
+      <div class="blk">
+        <div class="row">
+          <h3 style="margin:0">Estilo da legenda</h3>
+          <label class="inl only-one"><input type="checkbox" id="c_enabled"> ativar</label>
+        </div>
+        <div class="inl" style="margin-top:12px">
+          <select id="lang" class="no-style">
+            <option value="pt">Português</option><option value="en">Inglês</option>
+            <option value="es">Espanhol</option><option value="auto">Detectar idioma</option>
+          </select>
+          <button class="sm only-one" id="transcribe">Transcrever o áudio</button>
+          <span id="tstatus" class="hint only-one" style="margin:0"></span>
+        </div>
+        <div class="f">
+          <label class="fl">Estilo
+            <select id="c_preset">
+              <option value="destaque">Destaque (palavra colorida)</option>
+              <option value="classica">Clássica</option>
+              <option value="caixa">Com fundo (caixa)</option>
+            </select></label>
+          <label class="fl">Fonte <select id="c_font"></select></label>
+          <label class="fl">Cor do destaque <span class="inl"><input type="color" id="c_color"><button class="sm line pick only-multi" data-pick="c_color" title="Conta-gotas">💧</button></span></label>
+          <label class="fl">Palavras por linha <input type="number" id="c_wpl" min="1" max="8"></label>
+          <label class="fl">Tamanho <input type="range" id="c_size" min="40" max="160"></label>
+          <label class="fl">Posição vertical <input type="range" id="c_y" min="8" max="92"></label>
+          <label class="fl inl" style="flex-direction:row;align-items:center"><input type="checkbox" id="c_upper"> MAIÚSCULAS</label>
+        </div>
+        <div class="hint only-one" id="whint">Corrija palavras erradas abaixo. Apague o texto de uma palavra para removê-la.</div>
+        <div class="words only-one" id="words"></div>
+      </div>
+
+      <div class="blk only-multi">
+        <div class="row">
+          <h3 style="margin:0">Cortar pausas longas</h3>
+          <label class="inl"><input type="checkbox" data-b="cut.enabled"> ativar</label>
+        </div>
+        <div class="f">
+          <label class="fl">Pausa mínima (s) <input type="number" step="0.05" min="0.2" max="3" data-b="cut.minPause" data-n></label>
+          <label class="fl">Respiro mantido (s) <input type="number" step="0.05" min="0" max="0.5" data-b="cut.keep" data-n></label>
+        </div>
+        <div class="hint">Tira os silêncios maiores que a pausa mínima, deixando só o respiro. Silêncios acima de 3,5 s são mantidos (provavelmente são trechos sem fala de propósito).</div>
+      </div>
+
+      <div class="blk only-multi">
+        <h3>Texto na tela</h3>
+        <textarea class="only-batch" rows="2" data-b="text.content" placeholder="Texto que aparece nos vídeos (opcional)"></textarea>
+        <div class="f">
+          <label class="fl">Efeito
+            <select data-b="text.anim">
+              <option value="pop">Pop (aparece crescendo)</option><option value="fade">Fade</option>
+              <option value="slide">Sobe e aparece</option><option value="words">Palavra por palavra</option><option value="none">Sem efeito</option>
+            </select></label>
+          <label class="fl">Fonte <select id="t_font" data-b="text.font"></select></label>
+          <label class="fl">Cor <span class="inl"><input type="color" id="t_color" data-b="text.color"><button class="sm line pick" data-pick="t_color">💧</button></span></label>
+          <label class="fl">Cor do fundo <span class="inl"><input type="color" id="t_boxcolor" data-b="text.boxColor"><button class="sm line pick" data-pick="t_boxcolor">💧</button></span></label>
+          <label class="fl">Tamanho <input type="range" min="30" max="200" data-b="text.size" data-n></label>
+          <label class="fl">Posição vertical <input type="range" min="5" max="95" data-b="text.yPct" data-n></label>
+          <label class="fl">Início (s) <input type="number" step="0.1" min="0" data-b="text.start" data-n></label>
+          <label class="fl">Fim (s) <input type="number" step="0.1" min="0" data-b="text.end" data-n></label>
+          <label class="fl inl" style="flex-direction:row;align-items:center"><input type="checkbox" data-b="text.box"> Fundo (caixa)</label>
+        </div>
+      </div>
+
+      <div class="blk only-one">
+        <div class="row">
+          <h3 style="margin:0">Textos e efeitos</h3>
+          <button class="sm line" id="addtext">+ Adicionar texto</button>
+        </div>
+        <div id="texts"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const TYPES = { hook:"Ganchos", body:"Corpos", cta:"CTAs" };
+const FONTS = ["Anton","Bebas Neue","Poppins ExtraBold","Archivo Black","Bangers"];
+const LEGACY = { "Impact":"Anton", "Arial Black":"Archivo Black", "Trebuchet MS":"Poppins ExtraBold", "Georgia":"Poppins ExtraBold", "Verdana":"Poppins ExtraBold" };
+const normFont = (f) => { f = LEGACY[f] || f; return FONTS.includes(f) ? f : "Anton"; };
+const PRESET = { destaque:{box:false,outline:7}, classica:{box:false,outline:5}, caixa:{box:true,outline:0} };
+let state = { clips:[], variations:[], refs:[] };
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s??"").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+async function refresh() {
+  state = await (await fetch("/api/state")).json();
+  state.refs ||= [];
+  render();
+}
+
+function render() {
+  const ready = (t) => state.clips.filter(c => c.type===t && c.status==="ready").length;
+  const total = ready("hook") * ready("body") * ready("cta");
+  $("#count").textContent = total ? `${ready("hook")}×${ready("body")}×${ready("cta")} = ${total} combinações` : "";
+  $("#gen").disabled = !total;
+
+  $("#cols").innerHTML = Object.entries(TYPES).map(([t,label]) => `
+    <div class="col">
+      <h2><span>${label}</span><span>${state.clips.filter(c=>c.type===t).length}</span></h2>
+      <div class="drop" data-type="${t}">Arraste vídeos aqui<br>ou clique pra escolher</div>
+      ${state.clips.filter(c=>c.type===t).map(c => `
+        <div class="clip">
+          ${c.status==="ready" ? `<video src="/media/clips/${c.file}#t=0.1" muted preload="metadata"></video>` : `<div style="width:48px;height:84px"></div>`}
+          <div class="n">${esc(c.name)}
+            <small>${c.status==="ready"?"pronto":c.status==="error"?"erro":"processando…"}</small>
+          </div>
+          <button class="ghost" data-del-clip="${c.id}">✕</button>
+        </div>`).join("")}
+    </div>`).join("");
+
+  $("#vcount").textContent = state.variations.length ? `(${state.variations.length})` : "";
+  const gr = $("#genref"), keep = gr.value;
+  gr.innerHTML = `<option value="">sem referência</option>` + state.refs.filter(r => r.status==="ready").map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join("");
+  gr.value = [...gr.options].some(o => o.value===keep) ? keep : "";
+  $("#refs").innerHTML = `<div class="rcard refdrop"><div class="drop" data-ref="1" style="width:100%">Arraste vídeos de referência<br>ou clique pra escolher</div></div>` +
+    state.refs.map(r => `
+    <div class="rcard">
+      ${r.status==="ready" ? `<img src="/media/refs/${r.id}/${r.frames[0]||""}">` : `<div style="width:64px;height:114px"></div>`}
+      <div class="n"><b>${esc(r.name)}</b>
+        ${r.status==="ready"
+          ? `<small>${r.metrics.duration.toFixed(0)}s · ${r.metrics.cutsPerMin} cortes/min · ${r.metrics.longPauses} pausas longas</small>
+             <button class="sm line" data-style="${r.id}">Ver / ajustar estilo</button>
+             <button class="ghost" data-del-ref="${r.id}">✕</button>`
+          : r.status==="error" ? `<small style="color:var(--err)">erro na análise</small><button class="ghost" data-del-ref="${r.id}">✕</button>`
+          : `<small>analisando…</small>`}
+      </div>
+    </div>`).join("");
+  const ids = new Set(state.variations.map(v => v.id));
+  [...sel].forEach(i => ids.has(i) || sel.delete(i));
+  $("#tools").style.display = state.variations.some(v => v.status==="ready") ? "" : "none";
+  updateSel();
+  $("#vars").innerHTML = state.variations.map(v => {
+    const shown = v.capFile || v.file;
+    const capping = v.cap === "processing";
+    const ph = v.status==="error"?"erro ao gerar":v.status==="processing"?"gerando…":"na fila";
+    return `
+    <div class="v ${sel.has(v.id)?"picked":""}">
+      ${v.status==="ready" ? `<input type="checkbox" class="sel" data-sel="${v.id}" ${sel.has(v.id)?"checked":""}>` : ""}
+      ${v.status==="ready"
+        ? `<video src="/media/output/${shown}" controls preload="metadata"></video>`
+        : `<div class="ph">${ph}</div>`}
+      <div class="l">${esc(v.label)}</div>
+      <div class="row">
+        ${capping ? `<span class="badge">legendando…</span>`
+          : v.cap==="error" ? `<span class="badge error" title="${esc(v.capError)}">erro na legenda</span>`
+          : v.capFile ? `<span class="tag">✎ legendado</span>`
+          : `<span class="badge ${v.status}">${v.status==="ready"?"pronto":v.status==="error"?"erro":v.status==="processing"?"gerando":"fila"}</span>`}
+        <span>
+          ${v.status==="ready" ? `<button class="ghost" style="color:var(--acc)" data-edit="${v.id}">${v.capFile?"ajustar":"legenda"}</button>
+            <a class="dl" href="/media/output/${shown}" download="${esc(v.label)}.mp4">Baixar</a>` : ""}
+          <button class="ghost" data-del-var="${v.id}">✕</button>
+        </span>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+const sel = new Set();
+function updateSel() {
+  const n = sel.size;
+  $("#capsel").disabled = !n;
+  $("#capsel").textContent = n ? `Legendar selecionadas (${n})` : "Legendar selecionadas";
+  $("#selinfo").textContent = n ? "" : "Marque as variações que quer legendar.";
+}
+$("#selall").onclick = () => {
+  const ready = state.variations.filter(v => v.status==="ready");
+  if (sel.size === ready.length) sel.clear(); else ready.forEach(v => sel.add(v.id));
+  render();
+};
+document.addEventListener("change", e => {
+  if (e.target.dataset.sel) { e.target.checked ? sel.add(e.target.dataset.sel) : sel.delete(e.target.dataset.sel); e.target.closest(".v").classList.toggle("picked", e.target.checked); updateSel(); }
+});
+$("#capsel").onclick = () => openBatch();
+
+async function send(type, files) {
+  if (!files.length) return;
+  const fd = new FormData();
+  [...files].forEach(f => fd.append("files", f));
+  await fetch(`/api/clips/${type}`, { method:"POST", body:fd });
+  refresh();
+}
+
+function sendAny(d, files) { return d.dataset.ref ? sendRef(files) : send(d.dataset.type, files); }
+async function sendRef(files) {
+  if (!files.length) return;
+  const fd = new FormData();
+  [...files].forEach(f => fd.append("files", f));
+  await fetch("/api/refs", { method:"POST", body:fd });
+  refresh();
+}
+
+document.addEventListener("click", async (e) => {
+  const drop = e.target.closest(".drop");
+  if (drop) {
+    const i = document.createElement("input");
+    i.type = "file"; i.accept = "video/*"; i.multiple = true;
+    i.onchange = () => sendAny(drop, i.files);
+    i.click();
+  }
+  if (e.target.dataset.delClip) { await fetch(`/api/clips/${e.target.dataset.delClip}`, {method:"DELETE"}); refresh(); }
+  if (e.target.dataset.delVar) { await fetch(`/api/variations/${e.target.dataset.delVar}`, {method:"DELETE"}); refresh(); }
+  if (e.target.dataset.edit) openEditor(e.target.dataset.edit);
+  if (e.target.dataset.style) openStyle(e.target.dataset.style);
+  if (e.target.dataset.delRef) { await fetch(`/api/refs/${e.target.dataset.delRef}`, {method:"DELETE"}); refresh(); }
+  const pk = e.target.closest("[data-pick]");
+  if (pk) {
+    if (!window.EyeDropper) return alert("Conta-gotas só funciona no Chrome/Edge.");
+    try {
+      const r = await new EyeDropper().open();
+      const el = $("#" + pk.dataset.pick);
+      el.value = r.sRGBHex; el.dispatchEvent(new Event("input", { bubbles:true }));
+    } catch {}
+  }
+});
+document.addEventListener("dragover", e => { const d=e.target.closest(".drop"); if(d){e.preventDefault(); d.classList.add("over");} });
+document.addEventListener("dragleave", e => e.target.closest?.(".drop")?.classList.remove("over"));
+document.addEventListener("drop", e => {
+  const d = e.target.closest(".drop");
+  if (d) { e.preventDefault(); sendAny(d, e.dataTransfer.files); }
+});
+
+$("#gen").onclick = async () => {
+  const r = await fetch("/api/generate", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ refId: $("#genref").value || null, language:"pt" }) });
+  const j = await r.json();
+  if (!r.ok) alert(j.error);
+  refresh();
+};
+
+refresh();
+setInterval(() => {
+  if (state.clips.some(c=>c.status==="processing") || state.refs.some(r=>r.status==="processing") || state.variations.some(v=>["queued","processing"].includes(v.status) || v.cap==="processing")) refresh();
+}, 2000);
+
+/* ================= EDITOR ================= */
+let cur = null;   // clipe aberto
+let ed = null;    // edição em andamento
+
+const defaults = () => ({
+  captions: { enabled:false, preset:"destaque", font:"Anton", size:84, yPct:72, color:"#FFE600", wordsPerLine:3, upper:true, words:[] },
+  texts: [],
+  cut: { enabled:false, minPause:0.4, keep:0.1 },
+  text: { content:"", anim:"pop", font:"Anton", color:"#FFFFFF", size:96, yPct:25, start:0, end:3, box:false, boxColor:"#000000" }
+});
+
+const getp = (o,p) => p.split(".").reduce((a,k) => a?.[k], o);
+const setp = (o,p,v) => { const ks = p.split("."); const l = ks.pop(); ks.reduce((a,k) => a[k], o)[l] = v; };
+function loadBound() {
+  document.querySelectorAll("[data-b]").forEach(el => {
+    const v = getp(ed, el.dataset.b);
+    if (el.type === "checkbox") el.checked = !!v; else el.value = v ?? "";
+  });
+}
+document.addEventListener("input", e => {
+  const b = e.target.dataset?.b;
+  if (!b || !ed) return;
+  const el = e.target;
+  setp(ed, b, el.type==="checkbox" ? el.checked : el.hasAttribute("data-n") ? +el.value : el.value);
+  paint();
+});
+const fillFonts = () => document.querySelectorAll("#c_font, #t_font").forEach(sl => sl.innerHTML = FONTS.map(f => `<option>${f}</option>`).join(""));
+const mergeStyle = (st = {}) => {
+  const d = defaults();
+  return {
+    captions: { ...d.captions, ...(st.captions||{}), font: normFont(st.captions?.font), words: [], enabled: true },
+    texts: [],
+    cut: { ...d.cut, ...(st.cut||{}) },
+    text: { ...d.text, ...(st.text||{}), font: normFont(st.text?.font), content: "" },
+  };
+};
+
+let mode = "one";
+function openEditor(id) {
+  mode = "one";
+  $("#edbox").className = "ed";
+  cur = state.variations.find(v => v.id === id);
+  const d = defaults();
+  const saved = cur.edit ? JSON.parse(JSON.stringify(cur.edit)) : {};
+  ed = { ...d, captions: { ...d.captions, ...(saved.captions||{}), font: normFont(saved.captions?.font) }, texts: (saved.texts || []).map(t => ({ ...t, font: normFont(t.font) })) };
+  $("#save").textContent = "Salvar e renderizar";
+  $("#edtitle").textContent = cur.label;
+  fillFonts();
+  const v = $("#pv");
+  v.muted = false;
+  v.src = `/media/output/${cur.baseFile || cur.file}`; // sempre sem legenda (só com os cortes, se houver)
+  v.play().catch(()=>{});
+  loadCaptionForm();
+  loadBound();
+  renderWords();
+  renderTexts();
+  $("#modal").classList.add("open");
+  document.body.style.overflow = "hidden";
+  paint();
+}
+function openBatch() {
+  mode = "batch";
+  $("#edbox").className = "ed batch m-batch";
+  cur = null;
+  ed = mergeStyle();
+  $("#save").textContent = `Legendar ${sel.size} vídeo${sel.size>1?"s":""}`;
+  $("#edtitle").textContent = `Legendar ${sel.size} vídeo${sel.size>1?"s":""}`;
+  fillFonts();
+  const ready = state.refs.filter(r => r.status === "ready");
+  $("#refsel").innerHTML = `<option value="">Manual (sem referência)</option>` + ready.map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join("");
+  $("#refinfo").textContent = ready.length ? "Escolha uma referência para carregar o estilo dela. Você ainda pode ajustar tudo abaixo." : "Suba um vídeo na seção Referências para copiar o estilo dele.";
+  $("#pv").removeAttribute("src");
+  loadCaptionForm();
+  loadBound();
+  $("#modal").classList.add("open");
+  document.body.style.overflow = "hidden";
+}
+$("#refsel").onchange = () => {
+  const r = state.refs.find(x => x.id === $("#refsel").value);
+  const content = ed.text.content;
+  ed = mergeStyle(r?.style);
+  ed.text.content = content;
+  loadCaptionForm(); loadBound();
+};
+
+function openStyle(id) {
+  mode = "style";
+  $("#edbox").className = "ed batch m-style";
+  cur = state.refs.find(r => r.id === id);
+  ed = mergeStyle(cur.style);
+  $("#save").textContent = "Salvar estilo";
+  $("#edtitle").textContent = "Estilo: " + cur.name;
+  fillFonts();
+  const v = $("#pv");
+  v.muted = true;
+  v.src = `/media/refs/${cur.id}/preview.mp4`;
+  v.play().catch(()=>{});
+  $("#rframes").innerHTML = cur.frames.map(f => `<img src="/media/refs/${cur.id}/${f}">`).join("");
+  const m = cur.metrics;
+  $("#rmetrics").textContent = `${m.duration.toFixed(0)}s · ${m.cutsPerMin} cortes de cena/min · ${m.longPauses} pausas longas (≥0,4s)` + (cur.style?.cut?.enabled ? " → corte de pausas ligado, porque a referência não tem pausas longas." : "");
+  loadCaptionForm();
+  loadBound();
+  $("#modal").classList.add("open");
+  document.body.style.overflow = "hidden";
+}
+function closeEditor() {
+  $("#modal").classList.remove("open");
+  document.body.style.overflow = "";
+  $("#pv").pause();
+  cur = ed = null;
+}
+$("#cancel").onclick = closeEditor;
+$("#modal").addEventListener("mousedown", e => { if (e.target.id === "modal") closeEditor(); });
+
+const cmap = { c_enabled:["enabled","check"], c_preset:["preset"], c_font:["font"], c_color:["color"], c_wpl:["wordsPerLine","num"], c_size:["size","num"], c_y:["yPct","num"], c_upper:["upper","check"] };
+function loadCaptionForm() {
+  for (const [id,[k,t]] of Object.entries(cmap)) {
+    const el = $("#"+id);
+    if (t==="check") el.checked = !!ed.captions[k]; else el.value = ed.captions[k];
+  }
+}
+for (const [id,[k,t]] of Object.entries(cmap)) {
+  $("#"+id).addEventListener("input", e => {
+    ed.captions[k] = t==="check" ? e.target.checked : t==="num" ? +e.target.value : e.target.value;
+    paint();
+  });
+}
+
+function renderWords() {
+  const w = ed.captions.words;
+  $("#words").innerHTML = w.map((x,i) =>
+    `<input data-w="${i}" value="${esc(x.t)}" title="${x.s.toFixed(2)}s – ${x.e.toFixed(2)}s" size="${Math.max(2,x.t.length)}">`).join("");
+  $("#whint").style.display = w.length ? "" : "none";
+}
+$("#words").addEventListener("input", e => {
+  const i = e.target.dataset.w;
+  if (i !== undefined) { ed.captions.words[i].t = e.target.value; e.target.size = Math.max(2, e.target.value.length); paint(); }
+});
+
+$("#transcribe").onclick = async () => {
+  const b = $("#transcribe"), s = $("#tstatus");
+  b.disabled = true; s.textContent = "transcrevendo… (pode levar alguns segundos)";
+  try {
+    const r = await fetch(`/api/variations/${cur.id}/transcribe`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ language:$("#lang").value }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || "falha");
+    ed.captions.words = j.words;
+    ed.captions.enabled = true;
+    $("#c_enabled").checked = true;
+    s.textContent = j.words.length ? `${j.words.length} palavras` : "nenhuma fala detectada";
+    renderWords(); paint();
+  } catch (err) { s.textContent = "erro: " + err.message; }
+  b.disabled = false;
+};
+
+/* ---- textos ---- */
+function renderTexts() {
+  $("#texts").innerHTML = ed.texts.map((t,i) => `
+    <div class="txt" data-t="${i}">
+      <textarea rows="2" data-k="text" placeholder="Texto na tela">${esc(t.text)}</textarea>
+      <div class="f">
+        <label class="fl">Efeito
+          <select data-k="anim">
+            ${[["pop","Pop (aparece crescendo)"],["fade","Fade"],["slide","Sobe e aparece"],["words","Palavra por palavra"],["none","Sem efeito"]]
+              .map(([v,l]) => `<option value="${v}" ${t.anim===v?"selected":""}>${l}</option>`).join("")}
+          </select></label>
+        <label class="fl">Fonte <select data-k="font">${FONTS.map(f=>`<option ${t.font===f?"selected":""}>${f}</option>`).join("")}</select></label>
+        <label class="fl">Cor <input type="color" data-k="color" value="${t.color}"></label>
+        <label class="fl">Tamanho <input type="range" min="30" max="200" data-k="size" data-n="1" value="${t.size}"></label>
+        <label class="fl">Posição vertical <input type="range" min="5" max="95" data-k="yPct" data-n="1" value="${t.yPct}"></label>
+        <label class="fl">Início (s)
+          <span class="inl"><input type="number" step="0.1" min="0" data-k="start" data-n="1" value="${t.start}" style="width:70px"><button class="sm line" data-now="start">agora</button></span></label>
+        <label class="fl">Fim (s)
+          <span class="inl"><input type="number" step="0.1" min="0" data-k="end" data-n="1" value="${t.end}" style="width:70px"><button class="sm line" data-now="end">agora</button></span></label>
+        <label class="fl inl" style="flex-direction:row;align-items:center"><input type="checkbox" data-k="box" ${t.box?"checked":""}> Fundo (caixa)</label>
+        <label class="fl">Cor do fundo <input type="color" data-k="boxColor" value="${t.boxColor}"></label>
+      </div>
+      <div class="bar"><button class="ghost" data-rm="${i}">remover texto</button></div>
+    </div>`).join("") || `<div class="hint">Nenhum texto ainda. Clique em “+ Adicionar texto”.</div>`;
+}
+$("#addtext").onclick = () => {
+  const d = $("#pv").duration || cur.duration || 3;
+  const now = Math.min($("#pv").currentTime || 0, Math.max(0, d - 0.5));
+  ed.texts.push({ text:"Seu texto aqui", anim:"pop", font:"Anton", color:"#FFFFFF", size:96, yPct:28, start:+now.toFixed(1), end:+Math.min(d, now+2.5).toFixed(1), box:false, boxColor:"#000000" });
+  renderTexts(); paint();
+};
+$("#texts").addEventListener("input", e => {
+  const card = e.target.closest("[data-t]"); const k = e.target.dataset.k;
+  if (!card || !k) return;
+  const t = ed.texts[card.dataset.t];
+  t[k] = e.target.type==="checkbox" ? e.target.checked : e.target.dataset.n ? +e.target.value : e.target.value;
+  paint();
+});
+$("#texts").addEventListener("click", e => {
+  const card = e.target.closest("[data-t]");
+  if (e.target.dataset.rm !== undefined) { ed.texts.splice(+e.target.dataset.rm, 1); renderTexts(); paint(); }
+  if (e.target.dataset.now && card) {
+    const t = ed.texts[card.dataset.t];
+    t[e.target.dataset.now] = +$("#pv").currentTime.toFixed(1);
+    renderTexts(); paint();
+  }
+});
+
+/* ---- prévia ao vivo (aproximação do que o ffmpeg vai desenhar) ---- */
+function groupWords(words, n) {
+  const g = []; let c = [];
+  for (const w of words) { c.push(w); if (c.length >= n || /[.?!…]$/.test(w.t)) { g.push(c); c = []; } }
+  if (c.length) g.push(c);
+  return g;
+}
+function paint() {
+  const ov = $("#ov"); if (!ov || !ed) return;
+  const scale = $(".stage").clientWidth / 1080;
+  const style = mode === "style";
+  const t = style ? $("#pv").currentTime % 4 : $("#pv").currentTime;
+  let html = "";
+  const c = ed.captions;
+  const SAMPLE = "Esta é a legenda no seu estilo".split(" ").map((w,i) => ({ s:i*0.55, e:(i+1)*0.55, t:w }));
+  if (mode !== "batch" && (c.enabled || style) && (style || c.words.length)) {
+    const words = (style ? SAMPLE : c.words).filter(w => w.t.trim());
+    for (const g of groupWords(words, c.wordsPerLine||3)) {
+      if (t >= g[0].s && t < g[g.length-1].e + 0.12) {
+        let ai = 0; g.forEach((w,i) => { if (t >= w.s) ai = i; });
+        const p = PRESET[c.preset] || PRESET.destaque;
+        const inner = g.map((w,i) => {
+          const txt = esc(c.upper===false ? w.t : w.t.toUpperCase());
+          return c.preset==="destaque" && i===ai ? `<span style="color:${c.color}">${txt}</span>` : txt;
+        }).join(" ");
+        html += `<div style="top:${c.yPct}%;font:${c.size*scale}px '${c.font}';color:#fff;line-height:1.12;
+          ${p.box ? "background:rgba(0,0,0,.82);padding:.1em .3em;width:auto;max-width:86%;" : `-webkit-text-stroke:${p.outline*scale*2}px #000;text-shadow:0 ${2*scale}px ${4*scale}px rgba(0,0,0,.5);`}">${inner}</div>`;
+        break;
+      }
+    }
+  }
+  const overlays = style ? [{ ...ed.text, text:"Texto na tela", start:0, end:99 }] : ed.texts;
+  for (const x of overlays) {
+    if (!x.text.trim() || t < x.start || t > x.end) continue;
+    html += `<div style="top:${x.yPct}%;font:${x.size*scale}px '${x.font}';color:${x.color};white-space:pre-wrap;
+      ${x.box ? `background:${x.boxColor};padding:.12em .35em;width:auto;max-width:86%;` : `-webkit-text-stroke:${7*scale*2}px #000;`}">${esc(x.text)}</div>`;
+  }
+  ov.innerHTML = html;
+}
+$("#pv").addEventListener("timeupdate", paint);
+$("#pv").addEventListener("seeked", paint);
+setInterval(() => { if (ed && !$("#pv").paused) paint(); }, 60);
+window.addEventListener("resize", paint);
+
+$("#save").onclick = async () => {
+  $("#save").disabled = true;
+  const { words, enabled, ...cap } = ed.captions;
+  const json = { method:"POST", headers:{"Content-Type":"application/json"} };
+  if (mode === "batch") {
+    const r = await fetch("/api/captions/batch", { ...json,
+      body: JSON.stringify({ ids:[...sel], language:$("#lang").value, captions:cap, cut:ed.cut, text:ed.text }) });
+    if (!r.ok) alert((await r.json()).error);
+    sel.clear();
+  } else if (mode === "style") {
+    const { content, ...txt } = ed.text;
+    await fetch(`/api/refs/${cur.id}/style`, { ...json, method:"PUT", body: JSON.stringify({ captions:cap, cut:ed.cut, text:txt }) });
+  } else {
+    // palavras com espaço viram várias; palavras vazias são removidas
+    const out = [];
+    for (const w of ed.captions.words) {
+      const parts = w.t.trim().split(/\s+/).filter(Boolean);
+      const step = (w.e - w.s) / (parts.length || 1);
+      parts.forEach((p,i) => out.push({ s:+(w.s+i*step).toFixed(3), e:+(w.s+(i+1)*step).toFixed(3), t:p }));
+    }
+    const payload = { captions: { ...ed.captions, words: out }, texts: ed.texts.filter(t => t.text.trim()) };
+    await fetch(`/api/variations/${cur.id}/edit`, { ...json, method:"PUT", body:JSON.stringify(payload) });
+  }
+  $("#save").disabled = false;
+  closeEditor();
+  refresh();
+};
+</script>
+</body>
+</html>

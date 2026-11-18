@@ -233,7 +233,9 @@
 
       <div class="blk only-multi">
         <h3>Texto na tela</h3>
-        <textarea class="only-batch" rows="2" data-b="text.content" placeholder="Texto que aparece nos vídeos (opcional)"></textarea>
+        <div class="inl only-style" style="margin-bottom:8px"><button class="sm line" id="readtext">Ler texto da referência</button><span class="hint" id="readstatus" style="margin:0"></span></div>
+        <textarea rows="2" data-b="text.content" placeholder="Texto que aparece nos vídeos (opcional)"></textarea>
+        <div class="hint">O texto fica salvo no estilo e entra sozinho ao gerar/legendar com essa referência (você pode trocar na hora de legendar). Início 0 e Fim 999 = o texto fica o vídeo todo.</div>
         <div class="f">
           <label class="fl">Efeito
             <select data-b="text.anim">
@@ -322,6 +324,7 @@ function render() {
         <span class="chip"><i style="background:${esc(cp.color||"#FFE600")}"></i>${PL[cp.preset]||"Destaque"}</span>
         <span class="chip">${esc(normFont(cp.font))}</span>
         <span class="chip">cortar pausas: ${st.cut?.enabled ? "sim" : "não"}</span>
+        ${st.text?.content ? `<span class="chip" title="${esc(st.text.content)}">texto na tela ✓</span>` : ""}
       </div>` : ""}
       <div class="acts">
         ${r.status==="ready" ? `<button class="sm" data-style="${r.id}">Ajustar estilo</button><button class="sm line" data-rename="${r.id}">Renomear</button>` : ""}
@@ -514,7 +517,7 @@ const mergeStyle = (st = {}) => {
     captions: { ...d.captions, ...(st.captions||{}), font: normFont(st.captions?.font), words: [], enabled: true },
     texts: [],
     cut: { ...d.cut, ...(st.cut||{}) },
-    text: { ...d.text, ...(st.text||{}), font: normFont(st.text?.font), content: "" },
+    text: { ...d.text, ...(st.text||{}), font: normFont(st.text?.font), content: st.text?.content || "" },
   };
 };
 
@@ -558,11 +561,23 @@ function openBatch() {
   $("#modal").classList.add("open");
   document.body.style.overflow = "hidden";
 }
+$("#readtext").onclick = async () => {
+  const b = $("#readtext"), st = $("#readstatus");
+  b.disabled = true; st.textContent = "lendo os quadros… (pode levar alguns segundos)";
+  try {
+    const r = await fetch(`/api/refs/${cur.id}/read-text`, { method:"POST" });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || "falha");
+    if (!j.text) { st.textContent = "não encontrei texto fixo na tela dessa referência."; }
+    else { ed.text = { ...ed.text, ...j.text }; loadBound(); paint(); st.textContent = "texto lido — confira e corrija se precisar."; }
+  } catch (err) { st.textContent = err.message; }
+  b.disabled = false;
+};
 $("#refsel").onchange = () => {
   const r = state.refs.find(x => x.id === $("#refsel").value);
-  const content = ed.text.content;
+  const typed = ed.text.content;
   ed = mergeStyle(r?.style);
-  ed.text.content = content;
+  if (!ed.text.content) ed.text.content = typed;
   loadCaptionForm(); loadBound();
 };
 
@@ -715,7 +730,7 @@ function paint() {
       }
     }
   }
-  const overlays = style ? [{ ...ed.text, text:"Texto na tela", start:0, end:99 }] : ed.texts;
+  const overlays = style ? [{ ...ed.text, text: ed.text.content || "Texto na tela", start:0, end:99 }] : ed.texts;
   for (const x of overlays) {
     if (!x.text.trim() || t < x.start || t > x.end) continue;
     html += `<div style="top:${x.yPct}%;font:${x.size*scale}px '${x.font}';color:${x.color};white-space:pre-wrap;
@@ -738,8 +753,7 @@ $("#save").onclick = async () => {
     if (!r.ok) alert((await r.json()).error);
     sel.clear();
   } else if (mode === "style") {
-    const { content, ...txt } = ed.text;
-    await fetch(`/api/refs/${cur.id}/style`, { ...json, method:"PUT", body: JSON.stringify({ captions:cap, cut:ed.cut, text:txt }) });
+    await fetch(`/api/refs/${cur.id}/style`, { ...json, method:"PUT", body: JSON.stringify({ captions:cap, cut:ed.cut, text:ed.text }) });
   } else {
     // palavras com espaço viram várias; palavras vazias são removidas
     const out = [];

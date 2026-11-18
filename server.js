@@ -171,6 +171,98 @@ async function cutPauses(src, out, { minPause = 0.4, keep = 0.1 } = {}) {
   return true;
 }
 
+// ---------- ler o texto na tela de uma referência (OCR local, sem API) ----------
+let ocrWorker = null;
+async function getOcr() {
+  if (!ocrWorker) {
+    const { createWorker } = await import("tesseract.js");
+    const cachePath = path.join(DATA, "tess");
+    fs.mkdirSync(cachePath, { recursive: true });
+    ocrWorker = await createWorker("por", 1, { cachePath });
+  }
+  return ocrWorker;
+}
+
+const alnum = (t) => t.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, "");
+function similar(a, b) {
+  if (!a || !b) return false;
+  const n = a.length, m = b.length;
+  if (Math.abs(n - m) > Math.max(n, m) * 0.25) return false;
+  let prev = Array.from({ length: m + 1 }, (_, j) => j);
+  for (let i = 1; i <= n; i++) {
+    const cur = [i];
+    for (let j = 1; j <= m; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return 1 - prev[m] / Math.max(n, m) >= 0.8;
+}
+// tira lixo que o OCR inventa nas pontas ("Coconut €", "* Body")
+function cleanLine(t) {
+  const toks = t.trim().split(/\s+/).filter(Boolean);
+  const junk = (w) => w.length === 1 && !/[aeoAEOÀ-ÿ]/.test(w) || !/[\p{L}\p{N}]/u.test(w);
+  while (toks.length && junk(toks[0])) toks.shift();
+  while (toks.length && junk(toks[toks.length - 1])) toks.pop();
+  return toks.join(" ").replace(/^[^\p{L}\p{N}]+/u, "").trim();
+}
+
+// Texto que aparece fixo por cima do vídeo: acha as linhas que se repetem na maioria dos quadros.
+// Devolve { content, yPct, size, start, end, color } ou null.
+async function readRefText(ref) {
+  const dir = path.join(DIRS.refs, ref.id);
+  const preview = path.join(dir, "preview.mp4");
+  const N = 6, FW = 540;
+  const work = path.join(DIRS.tmp, "ocr-" + ref.id);
+  fs.mkdirSync(work, { recursive: true });
+  try {
+    const dim = (await run(ffprobe.path, ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0", preview])).trim().split(",").map(Number);
+    const FH = Math.round((FW * dim[1]) / dim[0]);
+    const dur = await duration(preview);
+    // só o que é muito claro vira preto sobre branco: legenda branca por cima do vídeo fica legível pro OCR
+    await run(ffmpegPath, ["-y", "-i", preview, "-vf",
+      `fps=${(N / Math.max(dur, 1)).toFixed(4)},scale=${FW}:-1,format=gray,lut=y='if(gt(val,225),0,255)'`, path.join(work, "o%d.png")]);
+    const files = fs.readdirSync(work).filter((f) => /^o\d+\.png$/.test(f)).sort((a, b) => parseInt(a.slice(1)) - parseInt(b.slice(1)));
+    const w = await getOcr();
+    const frames = [];
+    for (const f of files) {
+      const { data } = await w.recognize(path.join(work, f));
+      frames.push((data.lines || [])
+        .map((l) => ({ t: cleanLine(l.text), c: l.confidence, y0: l.bbox.y0, y1: l.bbox.y1 }))
+        .filter((l) => l.c >= 60 && alnum(l.t).length >= 4));
+    }
+    // agrupa linhas parecidas entre quadros
+    const groups = [];
+    frames.forEach((lines, fi) => lines.forEach((l) => {
+      const k = alnum(l.t);
+      const g = groups.find((x) => similar(x.key, k));
+      if (g) { g.items.push({ ...l, fi }); } else groups.push({ key: k, items: [{ ...l, fi }] });
+    }));
+    const need = Math.max(2, Math.ceil(files.length * 0.5));
+    const stable = groups.filter((g) => new Set(g.items.map((i) => i.fi)).size >= need);
+    if (!stable.length) return null;
+    const lines = stable.map((g) => {
+      const best = g.items.reduce((a, b) => (b.c > a.c ? b : a));
+      const ys = g.items.map((i) => i.y0).sort((a, b) => a - b);
+      return { t: best.t, y0: ys[Math.floor(ys.length / 2)], h: best.y1 - best.y0, fis: g.items.map((i) => i.fi) };
+    }).sort((a, b) => a.y0 - b.y0);
+    const top = lines[0].y0, bottom = Math.max(...lines.map((l) => l.y0 + l.h));
+    const avgH = lines.reduce((a, l) => a + l.h, 0) / lines.length;
+    const fis = lines.flatMap((l) => l.fis);
+    const present = new Set(fis).size;
+    const first = Math.min(...fis), last = Math.max(...fis);
+    const always = present / files.length >= 0.8;
+    return {
+      content: lines.map((l) => l.t).join("\n"),
+      yPct: Math.round(((top + bottom) / 2 / FH) * 100),
+      size: Math.max(30, Math.min(200, Math.round((avgH / FW) * 1080))),
+      color: "#FFFFFF",
+      start: always ? 0 : +((first * dur) / files.length).toFixed(1),
+      end: always ? 999 : +(((last + 1) * dur) / files.length).toFixed(1), // 999 = até o fim do vídeo
+    };
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true });
+  }
+}
+
 // ---------- referências: prévia leve + métricas de ritmo + quadros ----------
 async function analyzeRef(ref, rawPath) {
   const dir = path.join(DIRS.refs, ref.id);
@@ -197,6 +289,13 @@ async function analyzeRef(ref, rawPath) {
       text: { anim: "pop", font: "Anton", color: "#FFFFFF", size: 96, yPct: 25, start: 0, end: 3, box: false, boxColor: "#000000" },
     };
     ref.status = "ready";
+    save(db);
+    try {
+      const t = await readRefText(ref);
+      if (t) ref.style.text = { ...ref.style.text, ...t };
+    } catch (e) {
+      console.error("OCR da referência falhou:", e.message); // sem internet p/ baixar o idioma, etc.: segue sem texto
+    }
   } catch (e) {
     ref.status = "error";
     ref.error = e.message;
@@ -442,6 +541,16 @@ app.post("/api/refs", upload.array("files"), (req, res) => {
   res.json(created);
 });
 
+app.post("/api/refs/:id/read-text", async (req, res) => {
+  const ref = db.refs.find((r) => r.id === req.params.id && r.status === "ready");
+  if (!ref) return res.sendStatus(404);
+  try {
+    res.json({ text: await enqueueP(() => readRefText(ref)) });
+  } catch (e) {
+    res.status(500).json({ error: "Não foi possível ler o texto: " + e.message });
+  }
+});
+
 app.put("/api/refs/:id/style", (req, res) => {
   const ref = db.refs.find((r) => r.id === req.params.id);
   if (!ref) return res.sendStatus(404);
@@ -504,8 +613,7 @@ app.post("/api/generate", (req, res) => {
       save(db);
       // já sai no estilo da referência escolhida
       if (ref && v.status === "ready") {
-        const { content, ...txt } = ref.style?.text || {};
-        await captionJob(v, { language, captions: ref.style?.captions, cut: ref.style?.cut, text: null });
+        await captionJob(v, { language, captions: ref.style?.captions, cut: ref.style?.cut, text: ref.style?.text });
       }
     });
   }

@@ -90,6 +90,10 @@
   .rcard small { color:var(--mut); display:block; margin:4px 0 8px }
   .refdrop { display:grid; place-items:center; min-height:114px }
   .pick { padding:6px 8px }
+  .pbar { height:5px; background:var(--line); border-radius:99px; overflow:hidden; margin-top:6px }
+  .pbar i { display:block; height:100%; width:0; background:var(--acc); transition:width .2s }
+  .up { border-style:dashed; border-color:var(--acc) }
+  .up .ic { width:48px; height:84px; display:grid; place-items:center; color:var(--acc); font-size:20px; flex:none }
   .tools { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:0 0 14px }
   .v { position:relative }
   .v .sel { position:absolute; top:16px; left:16px; width:22px; height:22px; accent-color:var(--acc); z-index:2 }
@@ -252,6 +256,7 @@ function render() {
     <div class="col">
       <h2><span>${label}</span><span>${state.clips.filter(c=>c.type===t).length}</span></h2>
       <div class="drop" data-type="${t}">Arraste vídeos aqui<br>ou clique pra escolher</div>
+      ${uploads.filter(u => u.type===t).map(upCard).join("")}
       ${state.clips.filter(c=>c.type===t).map(c => `
         <div class="clip">
           ${c.status==="ready" ? `<video src="/media/clips/${c.file}#t=0.1" muted preload="metadata"></video>` : `<div style="width:48px;height:84px"></div>`}
@@ -267,6 +272,7 @@ function render() {
   gr.innerHTML = `<option value="">sem referência</option>` + state.refs.filter(r => r.status==="ready").map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join("");
   gr.value = [...gr.options].some(o => o.value===keep) ? keep : "";
   $("#refs").innerHTML = `<div class="rcard refdrop"><div class="drop" data-ref="1" style="width:100%">Arraste vídeos de referência<br>ou clique pra escolher</div></div>` +
+    uploads.filter(u => u.type==="ref").map(u => `<div class="rcard">${upCard(u)}</div>`).join("") +
     state.refs.map(r => `
     <div class="rcard">
       ${r.status==="ready" ? `<img src="/media/refs/${r.id}/${r.frames[0]||""}">` : `<div style="width:64px;height:114px"></div>`}
@@ -326,22 +332,51 @@ document.addEventListener("change", e => {
 });
 $("#capsel").onclick = () => openBatch();
 
-async function send(type, files) {
-  if (!files.length) return;
-  const fd = new FormData();
-  [...files].forEach(f => fd.append("files", f));
-  await fetch(`/api/clips/${type}`, { method:"POST", body:fd });
-  refresh();
-}
 
-function sendAny(d, files) { return d.dataset.ref ? sendRef(files) : send(d.dataset.type, files); }
-async function sendRef(files) {
-  if (!files.length) return;
+/* ---- envio com progresso: o card aparece na hora, antes do upload terminar ---- */
+let uploads = [], upSeq = 0;
+const upCard = (u) => `
+  <div class="clip up" data-up="${u.id}">
+    <div class="ic">⬆</div>
+    <div class="n">${esc(u.name)}
+      <small class="up-t">${u.pct>=100 ? "processando…" : `enviando… ${u.pct}%`}</small>
+      <div class="pbar"><i style="width:${u.pct}%"></i></div>
+    </div>
+    <button class="ghost" data-cancel-up="${u.id}" title="Cancelar">✕</button>
+  </div>`;
+function uploadFile(url, file, type) {
+  const u = { id: "u" + (++upSeq), type, name: file.name, pct: 0, xhr: new XMLHttpRequest() };
+  uploads.push(u);
+  render();
   const fd = new FormData();
-  [...files].forEach(f => fd.append("files", f));
-  await fetch("/api/refs", { method:"POST", body:fd });
-  refresh();
+  fd.append("files", file);
+  return new Promise(resolve => {
+    const finish = async (msg) => {
+      await refresh();
+      uploads = uploads.filter(x => x !== u);
+      render();
+      if (msg) alert(`Falha ao enviar "${file.name}": ${msg}`);
+      resolve();
+    };
+    u.xhr.open("POST", url);
+    u.xhr.upload.onprogress = e => {
+      if (!e.lengthComputable) return;
+      u.pct = Math.round(e.loaded / e.total * 100);
+      const el = document.querySelector(`[data-up="${u.id}"]`);
+      if (el) {
+        el.querySelector(".up-t").textContent = u.pct >= 100 ? "processando…" : `enviando… ${u.pct}%`;
+        el.querySelector(".pbar i").style.width = u.pct + "%";
+      }
+    };
+    u.xhr.onload = () => finish(u.xhr.status >= 400 ? `erro ${u.xhr.status}` : null);
+    u.xhr.onerror = () => finish("conexão interrompida");
+    u.xhr.onabort = () => finish(null);
+    u.xhr.send(fd);
+  });
 }
+const send = (type, files) => Promise.all([...files].map(f => uploadFile(`/api/clips/${type}`, f, type)));
+const sendRef = (files) => Promise.all([...files].map(f => uploadFile("/api/refs", f, "ref")));
+function sendAny(d, files) { d.classList.remove("over"); return d.dataset.ref ? sendRef(files) : send(d.dataset.type, files); }
 
 document.addEventListener("click", async (e) => {
   const drop = e.target.closest(".drop");
@@ -353,6 +388,7 @@ document.addEventListener("click", async (e) => {
   }
   if (e.target.dataset.delClip) { await fetch(`/api/clips/${e.target.dataset.delClip}`, {method:"DELETE"}); refresh(); }
   if (e.target.dataset.delVar) { await fetch(`/api/variations/${e.target.dataset.delVar}`, {method:"DELETE"}); refresh(); }
+  if (e.target.dataset.cancelUp) uploads.find(u => u.id === e.target.dataset.cancelUp)?.xhr.abort();
   if (e.target.dataset.edit) openEditor(e.target.dataset.edit);
   if (e.target.dataset.style) openStyle(e.target.dataset.style);
   if (e.target.dataset.delRef) { await fetch(`/api/refs/${e.target.dataset.delRef}`, {method:"DELETE"}); refresh(); }
@@ -369,6 +405,7 @@ document.addEventListener("click", async (e) => {
 document.addEventListener("dragover", e => { const d=e.target.closest(".drop"); if(d){e.preventDefault(); d.classList.add("over");} });
 document.addEventListener("dragleave", e => e.target.closest?.(".drop")?.classList.remove("over"));
 document.addEventListener("drop", e => {
+  document.querySelectorAll(".drop.over").forEach(x => x.classList.remove("over"));
   const d = e.target.closest(".drop");
   if (d) { e.preventDefault(); sendAny(d, e.dataTransfer.files); }
 });

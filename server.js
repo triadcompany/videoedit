@@ -304,7 +304,15 @@ const upload = multer({
   }),
 });
 
-app.get("/api/state", (_, res) => res.json(db));
+// /data só persiste se for um volume montado (device diferente do disco raiz do container)
+const IN_CONTAINER = fs.existsSync("/.dockerenv") || fs.existsSync("/run/.containerenv");
+function storageInfo() {
+  // fora de container (ex.: no seu Mac) os dados ficam no disco normal: sempre persistem
+  if (!IN_CONTAINER) return { persistent: true, path: DATA };
+  try { return { persistent: fs.statSync(DATA).dev !== fs.statSync("/").dev, path: DATA }; }
+  catch { return { persistent: true, path: DATA }; }
+}
+app.get("/api/state", (_, res) => res.json({ ...db, storage: storageInfo() }));
 
 app.post("/api/clips/:type", upload.array("files"), (req, res) => {
   const { type } = req.params;
@@ -438,6 +446,15 @@ app.put("/api/refs/:id/style", (req, res) => {
   const ref = db.refs.find((r) => r.id === req.params.id);
   if (!ref) return res.sendStatus(404);
   ref.style = req.body;
+  save(db);
+  res.json(ref);
+});
+
+app.put("/api/refs/:id/name", (req, res) => {
+  const ref = db.refs.find((r) => r.id === req.params.id);
+  const name = String(req.body?.name || "").trim().slice(0, 120);
+  if (!ref || !name) return res.sendStatus(400);
+  ref.name = name;
   save(db);
   res.json(ref);
 });

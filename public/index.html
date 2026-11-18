@@ -90,6 +90,21 @@
   .rcard small { color:var(--mut); display:block; margin:4px 0 8px }
   .refdrop { display:grid; place-items:center; min-height:114px }
   .pick { padding:6px 8px }
+  .nav { display:flex; gap:4px }
+  .nav a { color:var(--mut); text-decoration:none; padding:8px 14px; border-radius:8px; font-weight:600 }
+  .nav a.on { color:var(--txt); background:var(--card); border:1px solid var(--line); padding:7px 13px }
+  .warn { background:#3a2a10; border-bottom:1px solid #7a5a1a; color:#ffd58a; padding:12px 28px; font-size:14px }
+  .rgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:16px }
+  .rc { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; display:flex; flex-direction:column; gap:10px }
+  .rframes { display:flex; gap:6px; overflow:hidden }
+  .rframes img { height:130px; border-radius:6px; flex:none; background:#000 }
+  .rc b { display:block; word-break:break-word }
+  .rc small { color:var(--mut) }
+  .chips { display:flex; gap:6px; flex-wrap:wrap }
+  .chip { font-size:12px; background:#0f1115; border:1px solid var(--line); border-radius:99px; padding:3px 9px; display:inline-flex; align-items:center; gap:6px }
+  .chip i { width:10px; height:10px; border-radius:50%; display:inline-block; border:1px solid #fff4 }
+  .acts { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+  .rempty { color:var(--mut); margin:0 0 14px; max-width:620px }
   .pbar { height:5px; background:var(--line); border-radius:99px; overflow:hidden; margin-top:6px }
   .pbar i { display:block; height:100%; width:0; background:var(--acc); transition:width .2s }
   .up { border-style:dashed; border-color:var(--acc) }
@@ -104,7 +119,8 @@
 <body>
 <header>
   <h1>🎬 Variações de Criativo</h1>
-  <div style="display:flex;gap:12px;align-items:center">
+  <nav class="nav"><a href="#criativos" data-view="main">Criativos</a><a href="#referencias" data-view="refs">Referências <span id="refcount" style="color:var(--mut)"></span></a></nav>
+  <div id="headtools" style="display:flex;gap:12px;align-items:center">
     <span id="count" style="color:var(--mut)"></span>
     <label class="inl" style="color:var(--mut);font-size:13px">Estilo:
       <select id="genref" style="width:auto;max-width:180px"><option value="">sem referência</option></select>
@@ -112,12 +128,17 @@
     <button id="gen" disabled>Gerar variações</button>
   </div>
 </header>
+<div id="storewarn" class="warn" hidden>⚠ <b>Os dados não estão sendo salvos de forma permanente.</b> Por isso tudo some quando o sistema atualiza ou reinicia. No EasyPanel: aba <b>Mounts → Add Mount → Volume</b>, com Mount Path <b>/data</b>, e faça <b>Deploy</b> de novo.</div>
 <main>
+  <div id="view-refs" hidden>
+    <section style="margin-top:0">
+      <h2>Referências salvas</h2>
+      <p class="rempty">Suba vídeos cujo estilo você quer copiar. Eles ficam salvos aqui e aparecem no campo <b>Estilo</b> da página Criativos, na hora de gerar ou legendar. Clique em <b>Ajustar estilo</b> para acertar fonte, cor e corte de pausas de cada uma.</p>
+      <div class="rgrid" id="refs"></div>
+    </section>
+  </div>
+  <div id="view-main">
   <div class="cols" id="cols"></div>
-  <section>
-    <h2>Referências <span style="color:var(--mut);font-weight:400;font-size:13px">(vídeos cujo estilo você quer copiar)</span></h2>
-    <div class="refs" id="refs"></div>
-  </section>
   <section>
     <h2>Variações geradas <span id="vcount" style="color:var(--mut);font-weight:400"></span></h2>
     <div class="tools" id="tools" style="display:none">
@@ -127,6 +148,7 @@
     </div>
     <div class="grid" id="vars"></div>
   </section>
+  </div>
 </main>
 
 <div id="modal">
@@ -243,6 +265,7 @@ const esc = (s) => String(s??"").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;
 async function refresh() {
   state = await (await fetch("/api/state")).json();
   state.refs ||= [];
+  $("#storewarn").hidden = state.storage?.persistent !== false;
   render();
 }
 
@@ -271,20 +294,30 @@ function render() {
   const gr = $("#genref"), keep = gr.value;
   gr.innerHTML = `<option value="">sem referência</option>` + state.refs.filter(r => r.status==="ready").map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join("");
   gr.value = [...gr.options].some(o => o.value===keep) ? keep : "";
-  $("#refs").innerHTML = `<div class="rcard refdrop"><div class="drop" data-ref="1" style="width:100%">Arraste vídeos de referência<br>ou clique pra escolher</div></div>` +
-    uploads.filter(u => u.type==="ref").map(u => `<div class="rcard">${upCard(u)}</div>`).join("") +
-    state.refs.map(r => `
-    <div class="rcard">
-      ${r.status==="ready" ? `<img src="/media/refs/${r.id}/${r.frames[0]||""}">` : `<div style="width:64px;height:114px"></div>`}
-      <div class="n"><b>${esc(r.name)}</b>
-        ${r.status==="ready"
-          ? `<small>${r.metrics.duration.toFixed(0)}s · ${r.metrics.cutsPerMin} cortes/min · ${r.metrics.longPauses} pausas longas</small>
-             <button class="sm line" data-style="${r.id}">Ver / ajustar estilo</button>
-             <button class="ghost" data-del-ref="${r.id}">✕</button>`
-          : r.status==="error" ? `<small style="color:var(--err)">erro na análise</small><button class="ghost" data-del-ref="${r.id}">✕</button>`
-          : `<small>analisando…</small>`}
+  const PL = {destaque:"Destaque",classica:"Clássica",caixa:"Com fundo"};
+  $("#refcount").textContent = state.refs.length ? `(${state.refs.length})` : "";
+  $("#refs").innerHTML = `<div class="rc" style="justify-content:center"><div class="drop" data-ref="1">Arraste vídeos de referência<br>ou clique pra escolher</div></div>` +
+    uploads.filter(u => u.type==="ref").map(u => `<div class="rc">${upCard(u)}</div>`).join("") +
+    state.refs.map(r => {
+      const st = r.style || {}, cp = st.captions || {};
+      return `
+    <div class="rc">
+      ${r.status==="ready" ? `<div class="rframes">${(r.frames||[]).slice(0,4).map(f => `<img src="/media/refs/${r.id}/${f}" loading="lazy">`).join("")}</div>` : ""}
+      <div><b>${esc(r.name)}</b>
+        ${r.status==="ready" ? `<small>${r.metrics.duration.toFixed(0)}s · ${r.metrics.cutsPerMin} cortes/min · ${r.metrics.longPauses} pausas longas</small>`
+          : r.status==="error" ? `<small style="color:var(--err)">erro na análise</small>` : `<small>analisando…</small>`}
       </div>
-    </div>`).join("");
+      ${r.status==="ready" ? `<div class="chips">
+        <span class="chip"><i style="background:${esc(cp.color||"#FFE600")}"></i>${PL[cp.preset]||"Destaque"}</span>
+        <span class="chip">${esc(normFont(cp.font))}</span>
+        <span class="chip">cortar pausas: ${st.cut?.enabled ? "sim" : "não"}</span>
+      </div>` : ""}
+      <div class="acts">
+        ${r.status==="ready" ? `<button class="sm" data-style="${r.id}">Ajustar estilo</button><button class="sm line" data-rename="${r.id}">Renomear</button>` : ""}
+        <button class="ghost" data-del-ref="${r.id}">Excluir</button>
+      </div>
+    </div>`; }).join("") +
+    (!state.refs.length && !uploads.some(u => u.type==="ref") ? "" : "");
   const ids = new Set(state.variations.map(v => v.id));
   [...sel].forEach(i => ids.has(i) || sel.delete(i));
   $("#tools").style.display = state.variations.some(v => v.status==="ready") ? "" : "none";
@@ -391,7 +424,12 @@ document.addEventListener("click", async (e) => {
   if (e.target.dataset.cancelUp) uploads.find(u => u.id === e.target.dataset.cancelUp)?.xhr.abort();
   if (e.target.dataset.edit) openEditor(e.target.dataset.edit);
   if (e.target.dataset.style) openStyle(e.target.dataset.style);
-  if (e.target.dataset.delRef) { await fetch(`/api/refs/${e.target.dataset.delRef}`, {method:"DELETE"}); refresh(); }
+  if (e.target.dataset.delRef && confirm("Excluir esta referência?")) { await fetch(`/api/refs/${e.target.dataset.delRef}`, {method:"DELETE"}); refresh(); }
+  if (e.target.dataset.rename) {
+    const r = state.refs.find(x => x.id === e.target.dataset.rename);
+    const name = prompt("Novo nome da referência:", r?.name || "");
+    if (name && name.trim()) { await fetch(`/api/refs/${r.id}/name`, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ name }) }); refresh(); }
+  }
   const pk = e.target.closest("[data-pick]");
   if (pk) {
     if (!window.EyeDropper) return alert("Conta-gotas só funciona no Chrome/Edge.");
@@ -416,6 +454,16 @@ $("#gen").onclick = async () => {
   if (!r.ok) alert(j.error);
   refresh();
 };
+
+function setView() {
+  const v = location.hash === "#referencias" ? "refs" : "main";
+  $("#view-main").hidden = v !== "main";
+  $("#view-refs").hidden = v !== "refs";
+  $("#headtools").style.visibility = v === "main" ? "visible" : "hidden";
+  document.querySelectorAll(".nav a").forEach(a => a.classList.toggle("on", a.dataset.view === v));
+}
+window.addEventListener("hashchange", setView);
+setView();
 
 refresh();
 setInterval(() => {

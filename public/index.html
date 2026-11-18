@@ -5,9 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Variações de Criativo</title>
 <style>
+  @font-face { font-family:"Poppins Light"; src:url(/fonts/Poppins-Light.ttf) }
+  @font-face { font-family:"Poppins Regular"; src:url(/fonts/Poppins-Regular.ttf) }
+  @font-face { font-family:"Poppins Medium"; src:url(/fonts/Poppins-Medium.ttf) }
+  @font-face { font-family:"Poppins SemiBold"; src:url(/fonts/Poppins-SemiBold.ttf) }
+  @font-face { font-family:"Poppins Bold"; src:url(/fonts/Poppins-Bold.ttf) }
+  @font-face { font-family:"Montserrat Light"; src:url(/fonts/Montserrat-Light.ttf) }
+  @font-face { font-family:"Montserrat Regular"; src:url(/fonts/Montserrat-Regular.ttf) }
+  @font-face { font-family:"Montserrat Medium"; src:url(/fonts/Montserrat-Medium.ttf) }
+  @font-face { font-family:"Montserrat SemiBold"; src:url(/fonts/Montserrat-SemiBold.ttf) }
+  @font-face { font-family:"Montserrat Bold"; src:url(/fonts/Montserrat-Bold.ttf) }
+  @font-face { font-family:"Poppins ExtraBold"; src:url(/fonts/Poppins-ExtraBold.ttf) }
   @font-face { font-family:"Anton"; src:url(/fonts/Anton-Regular.ttf) }
   @font-face { font-family:"Bebas Neue"; src:url(/fonts/BebasNeue-Regular.ttf) }
-  @font-face { font-family:"Poppins ExtraBold"; src:url(/fonts/Poppins-ExtraBold.ttf) }
   @font-face { font-family:"Archivo Black"; src:url(/fonts/ArchivoBlack-Regular.ttf) }
   @font-face { font-family:"Bangers"; src:url(/fonts/Bangers-Regular.ttf) }
   :root { --bg:#0f1115; --card:#181b22; --line:#2a2f3a; --txt:#e8eaf0; --mut:#8b92a3; --acc:#6d5efc; --ok:#2ecc71; --err:#ff5c5c; }
@@ -254,7 +264,8 @@
 
 <script>
 const TYPES = { hook:"Ganchos", body:"Corpos", cta:"CTAs" };
-const FONTS = ["Anton","Bebas Neue","Poppins ExtraBold","Archivo Black","Bangers"];
+const FONTS = ["Poppins Light", "Poppins Regular", "Poppins Medium", "Poppins SemiBold", "Poppins Bold", "Montserrat Light", "Montserrat Regular", "Montserrat Medium", "Montserrat SemiBold", "Montserrat Bold", "Poppins ExtraBold", "Anton", "Bebas Neue", "Archivo Black", "Bangers"];
+const fontLabel = (n) => n.endsWith(" Bold") ? n + " (negrito)" : n;
 const LEGACY = { "Impact":"Anton", "Arial Black":"Archivo Black", "Trebuchet MS":"Poppins ExtraBold", "Georgia":"Poppins ExtraBold", "Verdana":"Poppins ExtraBold" };
 const normFont = (f) => { f = LEGACY[f] || f; return FONTS.includes(f) ? f : "Anton"; };
 const PRESET = { destaque:{box:false,outline:7}, classica:{box:false,outline:5}, caixa:{box:true,outline:0} };
@@ -496,7 +507,7 @@ document.addEventListener("input", e => {
   setp(ed, b, el.type==="checkbox" ? el.checked : el.hasAttribute("data-n") ? +el.value : el.value);
   paint();
 });
-const fillFonts = () => document.querySelectorAll("#c_font, #t_font").forEach(sl => sl.innerHTML = FONTS.map(f => `<option>${f}</option>`).join(""));
+const fillFonts = () => document.querySelectorAll("#c_font, #t_font").forEach(sl => sl.innerHTML = FONTS.map(f => `<option value="${f}">${fontLabel(f)}</option>`).join(""));
 const mergeStyle = (st = {}) => {
   const d = defaults();
   return {
@@ -636,7 +647,7 @@ function renderTexts() {
             ${[["pop","Pop (aparece crescendo)"],["fade","Fade"],["slide","Sobe e aparece"],["words","Palavra por palavra"],["none","Sem efeito"]]
               .map(([v,l]) => `<option value="${v}" ${t.anim===v?"selected":""}>${l}</option>`).join("")}
           </select></label>
-        <label class="fl">Fonte <select data-k="font">${FONTS.map(f=>`<option ${t.font===f?"selected":""}>${f}</option>`).join("")}</select></label>
+        <label class="fl">Fonte <select data-k="font">${FONTS.map(f=>`<option value="${f}" ${t.font===f?"selected":""}>${fontLabel(f)}</option>`).join("")}</select></label>
         <label class="fl">Cor <input type="color" data-k="color" value="${t.color}"></label>
         <label class="fl">Tamanho <input type="range" min="30" max="200" data-k="size" data-n="1" value="${t.size}"></label>
         <label class="fl">Posição vertical <input type="range" min="5" max="95" data-k="yPct" data-n="1" value="${t.yPct}"></label>

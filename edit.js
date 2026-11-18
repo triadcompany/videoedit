@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 // fontes livres que vão junto com o projeto: o resultado é igual em qualquer computador/servidor
 export const FONTS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "fonts");
-export const FONTS = ["Anton", "Bebas Neue", "Poppins ExtraBold", "Archivo Black", "Bangers"];
+export const FONTS = ["Poppins Light", "Poppins Regular", "Poppins Medium", "Poppins SemiBold", "Poppins Bold", "Montserrat Light", "Montserrat Regular", "Montserrat Medium", "Montserrat SemiBold", "Montserrat Bold", "Poppins ExtraBold", "Anton", "Bebas Neue", "Archivo Black", "Bangers"];
 // nomes antigos (estilos já salvos) -> equivalentes novos
 const LEGACY = { Impact: "Anton", "Arial Black": "Archivo Black", "Trebuchet MS": "Poppins ExtraBold", Georgia: "Poppins ExtraBold", Verdana: "Poppins ExtraBold" };
 

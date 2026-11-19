@@ -692,7 +692,7 @@ async function captionJob(v, { language = "pt", captions = {}, cut = null, text 
 }
 
 // Edição incremental depois de gerar: mexe só no que foi pedido (cut / captions / text) e mantém o resto.
-async function applyOps(v, { language = "pt", captions = null, cut = null, text = null } = {}) {
+async function applyOps(v, { language = "pt", captions = null, cut = null, text = null, remove = null } = {}) {
   v.cap = "processing";
   save(db);
   let pg = progress(v, [{ label: "Preparando", w: 1 }]);
@@ -701,8 +701,9 @@ async function applyOps(v, { language = "pt", captions = null, cut = null, text 
   try {
     const prev = v.edit || {};
     const prevCap = prev.captions || {};
-    const capOn = captions ? true : !!prevCap.enabled;
-    const needT = capOn && (captions || cut || !(prevCap.words || []).length);
+    const rmCut = !!remove?.cut && !cut && !!v.baseFile;   // tirar o corte: volta ao vídeo original
+    const capOn = captions ? true : remove?.captions ? false : !!prevCap.enabled;
+    const needT = capOn && (captions || cut || rmCut || !(prevCap.words || []).length);
     steps = [
       ...(cut ? [{ label: "Cortando pausas", w: 4 }] : []),
       ...(needT ? [{ label: "Transcrevendo a fala", w: 5 }] : []),
@@ -725,6 +726,12 @@ async function applyOps(v, { language = "pt", captions = null, cut = null, text 
       baseChanged = true; // o vídeo-base mudou: o tempo das palavras antigas deixa de valer
       checkCancel();
     }
+    if (rmCut) {
+      trashFile(v.baseFile);
+      v.baseFile = null;
+      delete v.cutInfo;
+      baseChanged = true; // sem o corte o tempo das palavras muda: precisa transcrever de novo se a legenda ficar
+    }
     const base = path.join(DIRS.out, v.baseFile || v.file);
     const { words: prevWords = [], enabled: _e, ...prevStyle } = prevCap;
     let words = captions ? [] : prevWords;
@@ -734,7 +741,7 @@ async function applyOps(v, { language = "pt", captions = null, cut = null, text 
       checkCancel();
       if (!words.length) throw new Error("nenhuma fala detectada");
     }
-    let texts = prev.texts || [];
+    let texts = remove?.texts ? [] : prev.texts || [];
     if (text && String(text.content || "").trim()) {
       const dur = await duration(base);
       const start = Math.max(0, +text.start || 0);
@@ -771,6 +778,19 @@ app.post("/api/variations/cancel", (req, res) => {
   }
   save(db);
   res.json({ cancelled });
+});
+
+// Tira edições dos vídeos selecionados: what = ["captions", "texts", "cut"] (ou "all" = voltar ao original)
+app.post("/api/variations/remove", (req, res) => {
+  const { ids = [], what = [], language = "pt" } = req.body || {};
+  const all = what.includes("all");
+  const remove = { captions: all || what.includes("captions"), texts: all || what.includes("texts"), cut: all || what.includes("cut") };
+  if (!remove.captions && !remove.texts && !remove.cut) return res.status(400).json({ error: "Escolha o que remover." });
+  const targets = db.variations.filter((v) => ids.includes(v.id) && v.status === "ready" && v.cap !== "processing");
+  if (!targets.length) return res.status(400).json({ error: "Nenhuma variação pronta selecionada." });
+  for (const v of targets) queueVariationJob(v, () => applyOps(v, { language, remove }));
+  save(db);
+  res.json({ queued: targets.length });
 });
 
 app.post("/api/variations/apply", (req, res) => {

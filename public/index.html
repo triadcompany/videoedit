@@ -119,6 +119,7 @@
   .qbar { display:flex; flex-wrap:wrap; gap:12px 20px; align-items:center; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin:0 0 16px }
   .q { display:flex; align-items:center; gap:8px; font-size:14px }
   .q[hidden] { display:none }
+  .rmrow { flex-basis:100%; border-top:1px solid var(--line); padding-top:10px; flex-wrap:wrap }
   .q input[type=number] { width:64px }
   .q input[type=text] { width:240px }
   .q select { width:auto; max-width:170px }
@@ -185,6 +186,13 @@
       <label class="q">Estilo <select id="q_ref"><option value="">padrão</option></select></label>
       <button id="apply" disabled>Aplicar nos selecionados</button>
       <button class="sm line" id="more" disabled title="Fonte, cor, tamanho, posição e tempo">Mais opções…</button>
+      <div class="q rmrow">
+        <span class="hint" style="margin:0">Marcar acima só <b>adiciona</b>: o que o vídeo já tem é mantido. Para tirar, use:</span>
+        <button class="sm line rmbtn" data-rm="captions" disabled>Tirar legenda</button>
+        <button class="sm line rmbtn" data-rm="texts" disabled>Tirar texto</button>
+        <button class="sm line rmbtn" data-rm="cut" disabled>Tirar corte de pausas</button>
+        <button class="sm line rmbtn" data-rm="all" disabled>Voltar ao original</button>
+      </div>
     </div>
     <div class="grid" id="vars"></div>
   </section>
@@ -506,6 +514,7 @@ function updateSel() {
   $("#apply").disabled = !n || !any;
   $("#apply").textContent = n ? `Aplicar em ${n} selecionado${n>1?"s":""}` : "Aplicar nos selecionados";
   $("#more").disabled = !n;
+  document.querySelectorAll(".rmbtn").forEach(b => { b.disabled = !n; });
   const noCap = state.variations.filter(v => v.status==="ready" && v.cap!=="processing" && !v.edit?.captions?.enabled).length;
   $("#capall").disabled = !noCap;
   $("#capall").textContent = noCap ? `Legendar todos (${noCap})` : "Legendar todos";
@@ -624,6 +633,15 @@ document.addEventListener("click", async (e) => {
   if (e.target.dataset.delClip) { await fetch(`/api/clips/${e.target.dataset.delClip}`, {method:"DELETE"}); refresh(); }
   if (e.target.dataset.delVar) { await fetch(`/api/variations/${e.target.dataset.delVar}`, {method:"DELETE"}); refresh(); }
   if (e.target.dataset.cancelUp) uploads.find(u => u.id === e.target.dataset.cancelUp)?.xhr.abort();
+  if (e.target.dataset.rm) {
+    const what = e.target.dataset.rm;
+    const names = { captions:"a legenda", texts:"o texto na tela", cut:"o corte de pausas", all:"TODAS as edições (volta ao vídeo original)" };
+    if (!sel.size) return;
+    if (!confirm(`Tirar ${names[what]} de ${sel.size} vídeo${sel.size>1?"s":""}?`)) return;
+    const r = await fetch("/api/variations/remove", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ ids:[...sel], what:[what], language:$("#q_lang").value }) });
+    if (!r.ok) alert((await r.json()).error);
+    await refresh();
+  }
   if (e.target.dataset.cancel) cancelJobs([e.target.dataset.cancel]);
   if (e.target.dataset.edit) openEditor(e.target.dataset.edit);
   if (e.target.dataset.style) openStyle(e.target.dataset.style);

@@ -282,38 +282,81 @@ async function refresh() {
   render();
 }
 
+/* Atualiza só o que mudou (por card), para as capas não recarregarem/piscarem a cada checagem */
+function patchList(box, items) {
+  const have = new Map([...box.children].map(el => [el.dataset.key, el]));
+  // apaga primeiro o que saiu da lista: assim os cards que ficam não precisam ser movidos (mover <video> faz a capa piscar)
+  const keys = new Set(items.map(i => i.key));
+  have.forEach((el, k) => { if (!keys.has(k)) { el.remove(); have.delete(k); } });
+  let prev = null;
+  for (const it of items) {
+    let el = have.get(it.key);
+    if (!el || el.dataset.sig !== it.html) {
+      const t = document.createElement("template");
+      t.innerHTML = it.html.trim();
+      const n = t.content.firstElementChild;
+      n.dataset.key = it.key; n.dataset.sig = it.html;
+      if (el) el.replaceWith(n);
+      el = n;
+    }
+    have.delete(it.key);
+    const want = prev ? prev.nextElementSibling : box.firstElementChild;
+    if (el !== want) box.insertBefore(el, want);
+    prev = el;
+  }
+}
+const setText = (el, txt) => { if (el.textContent !== txt) el.textContent = txt; };
+
 function render() {
   const ready = (t) => state.clips.filter(c => c.type===t && c.status==="ready").length;
   const total = ready("hook") * ready("body") * ready("cta");
-  $("#count").textContent = total ? `${ready("hook")}×${ready("body")}×${ready("cta")} = ${total} combinações` : "";
+  setText($("#count"), total ? `${ready("hook")}×${ready("body")}×${ready("cta")} = ${total} combinações` : "");
   $("#gen").disabled = !total;
 
-  $("#cols").innerHTML = Object.entries(TYPES).map(([t,label]) => `
-    <div class="col">
-      <h2><span>${label}</span><span>${state.clips.filter(c=>c.type===t).length}</span></h2>
-      <div class="drop" data-type="${t}">Arraste vídeos aqui<br>ou clique pra escolher</div>
-      ${uploads.filter(u => u.type===t).map(upCard).join("")}
-      ${state.clips.filter(c=>c.type===t).map(c => `
+  // colunas: a estrutura é criada uma vez; só os cards mudam
+  const cols = $("#cols");
+  if (!cols.children.length) {
+    cols.innerHTML = Object.entries(TYPES).map(([t,label]) => `
+      <div class="col" data-col="${t}">
+        <h2><span>${label}</span><span class="cnt"></span></h2>
+        <div class="drop" data-type="${t}">Arraste vídeos aqui<br>ou clique pra escolher</div>
+        <div class="body"></div>
+      </div>`).join("");
+  }
+  for (const t of Object.keys(TYPES)) {
+    const col = cols.querySelector(`[data-col="${t}"]`);
+    const clips = state.clips.filter(c => c.type === t);
+    setText(col.querySelector(".cnt"), String(clips.length));
+    patchList(col.querySelector(".body"), [
+      ...uploads.filter(u => u.type === t).map(u => ({ key:"up"+u.id, html:upCard(u) })),
+      ...clips.map(c => ({ key:c.id, html:`
         <div class="clip">
           ${c.status==="ready" ? `<video src="/media/clips/${c.file}#t=0.1" muted preload="metadata"></video>` : `<div style="width:48px;height:84px"></div>`}
           <div class="n">${esc(c.name)}
             <small>${c.status==="ready"?"pronto":c.status==="error"?"erro":"processando…"}</small>
           </div>
           <button class="ghost" data-del-clip="${c.id}">✕</button>
-        </div>`).join("")}
-    </div>`).join("");
+        </div>` })),
+    ]);
+  }
 
-  $("#vcount").textContent = state.variations.length ? `(${state.variations.length})` : "";
-  const gr = $("#genref"), keep = gr.value;
-  gr.innerHTML = `<option value="">sem referência</option>` + state.refs.filter(r => r.status==="ready").map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join("");
-  gr.value = [...gr.options].some(o => o.value===keep) ? keep : "";
+  setText($("#vcount"), state.variations.length ? `(${state.variations.length})` : "");
+  const gr = $("#genref");
+  const optsHtml = `<option value="">sem referência</option>` + state.refs.filter(r => r.status==="ready").map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join("");
+  if (gr.dataset.sig !== optsHtml) {   // só mexe no select se a lista mudou (não fecha o menu aberto)
+    const keep = gr.value;
+    gr.innerHTML = optsHtml; gr.dataset.sig = optsHtml;
+    gr.value = [...gr.options].some(o => o.value===keep) ? keep : "";
+  }
+
   const PL = {destaque:"Destaque",classica:"Clássica",caixa:"Com fundo"};
-  $("#refcount").textContent = state.refs.length ? `(${state.refs.length})` : "";
-  $("#refs").innerHTML = `<div class="rc" style="justify-content:center"><div class="drop" data-ref="1">Arraste vídeos de referência<br>ou clique pra escolher</div></div>` +
-    uploads.filter(u => u.type==="ref").map(u => `<div class="rc">${upCard(u)}</div>`).join("") +
-    state.refs.map(r => {
+  setText($("#refcount"), state.refs.length ? `(${state.refs.length})` : "");
+  patchList($("#refs"), [
+    { key:"drop", html:`<div class="rc" style="justify-content:center"><div class="drop" data-ref="1">Arraste vídeos de referência<br>ou clique pra escolher</div></div>` },
+    ...uploads.filter(u => u.type==="ref").map(u => ({ key:"up"+u.id, html:`<div class="rc">${upCard(u)}</div>` })),
+    ...state.refs.map(r => {
       const st = r.style || {}, cp = st.captions || {};
-      return `
+      return { key:r.id, html:`
     <div class="rc">
       ${r.status==="ready" ? `<div class="rframes">${(r.frames||[]).slice(0,4).map(f => `<img src="/media/refs/${r.id}/${f}" loading="lazy">`).join("")}</div>` : ""}
       <div><b>${esc(r.name)}</b>
@@ -330,19 +373,19 @@ function render() {
         ${r.status==="ready" ? `<button class="sm" data-style="${r.id}">Ajustar estilo</button><button class="sm line" data-rename="${r.id}">Renomear</button>` : ""}
         <button class="ghost" data-del-ref="${r.id}">Excluir</button>
       </div>
-    </div>`; }).join("") +
-    (!state.refs.length && !uploads.some(u => u.type==="ref") ? "" : "");
+    </div>` }; }),
+  ]);
+
   const ids = new Set(state.variations.map(v => v.id));
   [...sel].forEach(i => ids.has(i) || sel.delete(i));
   $("#tools").style.display = state.variations.some(v => v.status==="ready") ? "" : "none";
-  updateSel();
-  $("#vars").innerHTML = state.variations.map(v => {
+  patchList($("#vars"), state.variations.map(v => {
     const shown = v.capFile || v.file;
     const capping = v.cap === "processing";
     const ph = v.status==="error"?"erro ao gerar":v.status==="processing"?"gerando…":"na fila";
-    return `
-    <div class="v ${sel.has(v.id)?"picked":""}">
-      ${v.status==="ready" ? `<input type="checkbox" class="sel" data-sel="${v.id}" ${sel.has(v.id)?"checked":""}>` : ""}
+    return { key:v.id, html:`
+    <div class="v">
+      ${v.status==="ready" ? `<input type="checkbox" class="sel" data-sel="${v.id}">` : ""}
       ${v.status==="ready"
         ? `<video src="/media/output/${shown}" controls preload="metadata"></video>`
         : `<div class="ph">${ph}</div>`}
@@ -358,8 +401,15 @@ function render() {
           <button class="ghost" data-del-var="${v.id}">✕</button>
         </span>
       </div>
-    </div>`;
-  }).join("");
+    </div>` };
+  }));
+  // seleção fica fora do HTML dos cards, para marcar/desmarcar não recarregar o vídeo
+  $("#vars").querySelectorAll(".v").forEach(el => {
+    const on = sel.has(el.dataset.key);
+    el.classList.toggle("picked", on);
+    const cb = el.querySelector(".sel"); if (cb) cb.checked = on;
+  });
+  updateSel();
 }
 
 const sel = new Set();

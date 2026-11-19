@@ -51,9 +51,63 @@ db.variations.forEach((v) => (v.status === "processing" || v.status === "queued"
 save(db);
 
 // ---------- ffmpeg ----------
+// ---------- trabalhos de edição canceláveis ----------
+// A fila roda um trabalho por vez, então "currentJob" é o único trabalho de variação em execução.
+// Todo processo (ffmpeg/whisper) iniciado durante ele é registrado para poder ser encerrado ao cancelar.
+const jobs = new Map();   // id da variação -> trabalho (na fila ou rodando)
+let currentJob = null;
+function track(p) {
+  const job = currentJob;
+  if (!job) return p;
+  job.procs.add(p);
+  p.on("close", () => job.procs.delete(p));
+  if (job.cancelled) { try { p.kill("SIGKILL"); } catch {} }
+  return p;
+}
+const checkCancel = () => { if (currentJob?.cancelled) throw new Error("cancelado"); };
+// apaga um arquivo antigo só quando o trabalho termina bem (se cancelar/falhar, ele ainda é necessário)
+function trashFile(f) {
+  if (currentJob) currentJob.trash.push(f);
+  else fs.rmSync(path.join(DIRS.out, f), { force: true });
+}
+function queueVariationJob(v, fn) {
+  const job = { id: v.id, cancelled: false, started: false, procs: new Set(), files: [], trash: [] };
+  jobs.set(v.id, job);
+  v.cap = "processing";
+  v.prog = { pct: 0, stage: "Na fila" };
+  delete v.capError;
+  enqueue(async () => {
+    if (job.cancelled) { if (jobs.get(v.id) === job) jobs.delete(v.id); return; }
+    job.started = true;
+    currentJob = job;
+    const snap = { baseFile: v.baseFile ?? null, capFile: v.capFile ?? null, cutInfo: v.cutInfo, edit: v.edit ? structuredClone(v.edit) : v.edit };
+    try {
+      await fn();
+    } catch (e) {
+      if (!job.cancelled) { v.cap = "error"; v.capError = e.message; }
+    } finally {
+      currentJob = null;
+      if (job.cancelled || v.cap === "error") {
+        // volta ao estado de antes e apaga o que este trabalho criou pela metade
+        for (const f of job.files) fs.rmSync(path.join(DIRS.out, f), { force: true });
+        v.baseFile = snap.baseFile;
+        v.capFile = snap.capFile;
+        v.edit = snap.edit;
+        if (snap.cutInfo === undefined) delete v.cutInfo; else v.cutInfo = snap.cutInfo;
+        if (job.cancelled) { v.cap = "idle"; delete v.capError; }
+      } else {
+        for (const f of job.trash) fs.rmSync(path.join(DIRS.out, f), { force: true });
+      }
+      delete v.prog;
+      if (jobs.get(v.id) === job) jobs.delete(v.id);
+      save(db);
+    }
+  });
+}
+
 function run(bin, args) {
   return new Promise((resolve, reject) => {
-    const p = spawn(bin, args);
+    const p = track(spawn(bin, args));
     let err = "", out = "";
     p.stdout.on("data", (d) => (out += d));
     p.stderr.on("data", (d) => (err += d));
@@ -67,7 +121,7 @@ function run(bin, args) {
 // roda e devolve stderr (ffmpeg escreve silencedetect/showinfo lá), sem rejeitar em código != 0
 function runAll(bin, args) {
   return new Promise((resolve, reject) => {
-    const p = spawn(bin, args);
+    const p = track(spawn(bin, args));
     let err = "";
     p.stderr.on("data", (d) => (err += d));
     p.on("error", reject);
@@ -92,7 +146,7 @@ function progress(holder, steps) {
 // ffmpeg com progresso real: lê out_time de "-progress pipe:1" e divide pela duração esperada da saída
 function runFfmpegProgress(args, totalSec, onFrac, opts = {}) {
   return new Promise((resolve, reject) => {
-    const p = spawn(ffmpegPath, ["-progress", "pipe:1", "-nostats", ...args], opts);
+    const p = track(spawn(ffmpegPath, ["-progress", "pipe:1", "-nostats", ...args], opts));
     let err = "", buf = "";
     p.stdout.on("data", (d) => {
       buf += d;
@@ -113,7 +167,7 @@ function runFfmpegProgress(args, totalSec, onFrac, opts = {}) {
 // como run(), mas deixa ver o stderr enquanto roda (whisper imprime o progresso lá)
 function runStream(bin, args, onErr) {
   return new Promise((resolve, reject) => {
-    const p = spawn(bin, args);
+    const p = track(spawn(bin, args));
     let out = "", err = "";
     p.stdout.on("data", (d) => (out += d));
     p.stderr.on("data", (d) => { err += d; onErr?.(String(d)); });
@@ -193,6 +247,7 @@ async function cutPauses(src, out, { minPause = 0.4, keep = 0.1, segments = [] }
   onFrac?.(0.08);
   const syn = await runAll(ffmpegPath, ["-i", src, "-af", "silencedetect=noise=-80dB:d=0.5", "-f", "null", "-"]);
   onFrac?.(0.15);
+  checkCancel();
   const sStarts = [...syn.err.matchAll(/silence_start: (-?[\d.]+)/g)].map((m) => +m[1]);
   const sEnds = [...syn.err.matchAll(/silence_end: ([\d.]+)/g)].map((m) => +m[1]);
   const synthetic = sStarts.map((st, i) => [Math.max(0, st), sEnds[i] ?? total]);
@@ -380,6 +435,7 @@ async function transcribeFile(videoPath, lang = "pt", onFrac = null) {
   const wav = path.join(DIRS.tmp, crypto.randomUUID() + ".wav");
   try {
     await run(ffmpegPath, ["-y", "-i", videoPath, "-vn", "-ar", "16000", "-ac", "1", wav]);
+    checkCancel();
     const audioDur = await duration(wav);
     const t0 = Date.now();
     let real = false;
@@ -438,6 +494,8 @@ async function renderVariation(v, pg = null, stepIdx = 0) {
       const outName = `cap-${Date.now()}-${v.id.slice(0, 4)}.mp4`;
       fs.writeFileSync(path.join(DIRS.tmp, assName), assText);
       const srcPath = path.join(DIRS.out, v.baseFile || v.file);
+      currentJob?.files.push(outName);
+      checkCancel();
       await runFfmpegProgress([
         "-y", "-i", srcPath,
         "-vf", `ass=${assName}:fontsdir=${FONTS_DIR}`,
@@ -575,11 +633,9 @@ app.post("/api/variations/:id/transcribe", async (req, res) => {
 app.put("/api/variations/:id/edit", (req, res) => {
   const v = db.variations.find((x) => x.id === req.params.id);
   if (!v || v.status !== "ready") return res.sendStatus(404);
-  v.edit = req.body || {};
-  v.cap = "processing";
-  v.prog = { pct: 0, stage: "Na fila" };
+  const newEdit = req.body || {};
+  queueVariationJob(v, () => { v.edit = newEdit; return renderVariation(v); });
   save(db);
-  enqueue(() => renderVariation(v));
   res.json(v);
 });
 
@@ -607,12 +663,13 @@ async function captionJob(v, { language = "pt", captions = {}, cut = null, text 
     v.baseFile = null;
     if (cut?.enabled) {
       const name = `cut-${Date.now()}-${v.id.slice(0, 4)}.mp4`;
+      currentJob?.files.push(name);
       if (await cutPauses(path.join(DIRS.out, v.file), path.join(DIRS.out, name), { ...cut, segments: await variationSegments(v) })) {
         v.baseFile = name;
         base = name;
       }
     }
-    if (oldBase && oldBase !== v.baseFile) fs.rmSync(path.join(DIRS.out, oldBase), { force: true });
+    if (oldBase && oldBase !== v.baseFile) trashFile(oldBase);
     let words = [];
     if (withCaptions) {
       words = await transcribeFile(path.join(DIRS.out, base), language);
@@ -659,12 +716,14 @@ async function applyOps(v, { language = "pt", captions = null, cut = null, text 
       const oldBase = v.baseFile;
       v.baseFile = null;
       const name = `cut-${Date.now()}-${v.id.slice(0, 4)}.mp4`;
+      currentJob?.files.push(name);
       const minPause = Math.min(10, Math.max(0.2, +cut.minPause || 2));
       const removed = await cutPauses(path.join(DIRS.out, v.file), path.join(DIRS.out, name), { ...cut, minPause, segments: await variationSegments(v) }, (f) => pg.frac(f));
       if (removed > 0) v.baseFile = name;
       v.cutInfo = { removed: +removed.toFixed(1), minPause };
-      if (oldBase && oldBase !== v.baseFile) fs.rmSync(path.join(DIRS.out, oldBase), { force: true });
+      if (oldBase && oldBase !== v.baseFile) trashFile(oldBase);
       baseChanged = true; // o vídeo-base mudou: o tempo das palavras antigas deixa de valer
+      checkCancel();
     }
     const base = path.join(DIRS.out, v.baseFile || v.file);
     const { words: prevWords = [], enabled: _e, ...prevStyle } = prevCap;
@@ -672,6 +731,7 @@ async function applyOps(v, { language = "pt", captions = null, cut = null, text 
     if (needT) {
       pg.start(si++);
       words = await transcribeFile(base, language, (f) => pg.frac(f));
+      checkCancel();
       if (!words.length) throw new Error("nenhuma fala detectada");
     }
     let texts = prev.texts || [];
@@ -693,6 +753,26 @@ async function applyOps(v, { language = "pt", captions = null, cut = null, text 
   save(db);
 }
 
+// Cancela edições na fila ou em andamento. ids: lista de ids, ou "all".
+app.post("/api/variations/cancel", (req, res) => {
+  const ids = req.body?.ids === "all" ? [...jobs.keys()] : Array.isArray(req.body?.ids) ? req.body.ids : [];
+  let cancelled = 0;
+  for (const id of ids) {
+    const job = jobs.get(id);
+    if (!job || job.cancelled) continue;
+    job.cancelled = true;
+    cancelled++;
+    for (const p of job.procs) { try { p.kill("SIGKILL"); } catch {} }   // para o ffmpeg/whisper de verdade
+    if (!job.started) {                                                   // ainda na fila: nada foi alterado, só limpa o estado
+      const v = db.variations.find((x) => x.id === id);
+      if (v) { v.cap = "idle"; delete v.prog; delete v.capError; }
+      jobs.delete(id);
+    }
+  }
+  save(db);
+  res.json({ cancelled });
+});
+
 app.post("/api/variations/apply", (req, res) => {
   const { ids = [], language = "pt", captions = null, cut = null, text = null } = req.body || {};
   const hasText = !!String(text?.content || "").trim();
@@ -700,9 +780,7 @@ app.post("/api/variations/apply", (req, res) => {
   const targets = db.variations.filter((v) => ids.includes(v.id) && v.status === "ready" && v.cap !== "processing");
   if (!targets.length) return res.status(400).json({ error: "Nenhuma variação pronta selecionada." });
   for (const v of targets) {
-    v.cap = "processing";
-    v.prog = { pct: 0, stage: "Na fila" };
-    enqueue(() => applyOps(v, { language, captions, cut, text: hasText ? text : null }));
+    queueVariationJob(v, () => applyOps(v, { language, captions, cut, text: hasText ? text : null }));
   }
   save(db);
   res.json({ queued: targets.length });
@@ -714,9 +792,7 @@ app.post("/api/captions/batch", (req, res) => {
   const targets = db.variations.filter((v) => ids.includes(v.id) && v.status === "ready" && v.cap !== "processing");
   if (!targets.length) return res.status(400).json({ error: "Nenhuma variação pronta selecionada." });
   for (const v of targets) {
-    v.cap = "processing";
-    v.prog = { pct: 0, stage: "Na fila" };
-    enqueue(() => captionJob(v, { language, captions, cut, text, withCaptions: withCaptions !== false }));
+    queueVariationJob(v, () => captionJob(v, { language, captions, cut, text, withCaptions: withCaptions !== false }));
   }
   save(db);
   res.json({ queued: targets.length });

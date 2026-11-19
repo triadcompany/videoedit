@@ -127,6 +127,8 @@
   .ptxt { display:flex; justify-content:space-between; gap:8px; font-size:12px; color:var(--mut); margin-top:5px }
   .ptxt b { color:var(--txt); font-variant-numeric:tabular-nums }
   .prog { margin:8px 0 2px }
+  .cx { padding:0 4px !important; margin-left:6px; font-size:12px !important; color:var(--err) !important }
+  .cx:hover { text-decoration:underline }
   .gbar { background:var(--card); border:1px solid var(--acc); border-radius:12px; padding:12px 14px; margin:0 0 12px }
   .gbar .gl { display:flex; justify-content:space-between; gap:12px; margin-bottom:8px; font-size:14px }
   .gbar .pbar2 { height:10px }
@@ -170,7 +172,7 @@
       <span class="hint" id="selinfo" style="margin:0"></span>
     </div>
     <div class="gbar" id="gbar" style="display:none">
-      <div class="gl"><span id="gtxt"></span><b id="gpct"></b></div>
+      <div class="gl"><span id="gtxt"></span><span class="inl"><b id="gpct"></b><button class="sm line" id="gcancel">Cancelar tudo</button></span></div>
       <div class="pbar2"><i id="gfill"></i></div>
     </div>
     <div class="qbar" id="qbar" style="display:none">
@@ -336,7 +338,7 @@ function patchList(box, items) {
 }
 const setText = (el, txt) => { if (el.textContent !== txt) el.textContent = txt; };
 
-const progBox = (key) => `<div class="prog" data-prog="${key}"><div class="pbar2"><i></i></div><div class="ptxt"><span class="pst"></span><b class="ppc"></b></div></div>`;
+const progBox = (key, cancelId) => `<div class="prog" data-prog="${key}"><div class="pbar2"><i></i></div><div class="ptxt"><span class="pst"></span><span><b class="ppc"></b>${cancelId ? `<button class="ghost cx" data-cancel="${cancelId}" title="Cancelar esta edição">cancelar</button>` : ""}</span></div></div>`;
 
 function vTags(v) {
   const e = v.edit || {}, t = [];
@@ -431,7 +433,7 @@ function render() {
       ${v.status==="ready"
         ? `<video src="/media/output/${shown}" controls preload="metadata"></video>`
         : `<div class="ph">${ph}</div>`}
-      ${capping ? progBox(v.id) : ""}
+      ${capping ? progBox(v.id, v.id) : ""}
       <div class="l">${esc(v.label)}</div>
       <div class="row">
         ${capping ? `<span class="badge">editando…</span>`
@@ -458,7 +460,12 @@ function render() {
 }
 
 // Progresso: atualiza só os números/barras (fora do HTML dos cards), para não recriar vídeos nem piscar
-let batchIds = new Set(), gHold = null;
+let batchIds = new Set(), gHold = null, cancelFlag = false;
+async function cancelJobs(ids) {
+  cancelFlag = true;
+  await fetch("/api/variations/cancel", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ ids }) });
+  await refresh();
+}
 function applyProgress() {
   const put = (key, p) => {
     const el = document.querySelector(`[data-prog="${key}"]`);
@@ -474,7 +481,7 @@ function applyProgress() {
   const proc = state.variations.filter(v => v.cap === "processing");
   proc.forEach(v => batchIds.add(v.id));
   const g = $("#gbar");
-  if (!batchIds.size) { g.style.display = "none"; return; }
+  if (!batchIds.size) { g.style.display = "none"; cancelFlag = false; return; }
   const total = batchIds.size;
   const done = [...batchIds].filter(id => !proc.some(v => v.id === id)).length;
   const sum = proc.reduce((a, v) => a + (v.prog?.pct ?? 0), 0);
@@ -484,10 +491,11 @@ function applyProgress() {
   g.style.display = "";
   $("#gfill").style.width = pct + "%";
   $("#gpct").textContent = pct + "%";
+  $("#gcancel").style.display = finished ? "none" : "";
   $("#gtxt").textContent = finished
-    ? (hadErr ? "Concluído, mas alguns vídeos deram erro" : `Concluído ✓ ${total} vídeo${total>1?"s":""} editado${total>1?"s":""}`)
+    ? (cancelFlag ? "Edição encerrada (você cancelou)" : hadErr ? "Concluído, mas alguns vídeos deram erro" : `Concluído ✓ ${total} vídeo${total>1?"s":""} editado${total>1?"s":""}`)
     : `Editando ${total} vídeo${total>1?"s":""} · ${done} de ${total} concluído${done===1?"":"s"}`;
-  if (finished && !gHold) gHold = setTimeout(() => { batchIds.clear(); gHold = null; g.style.display = "none"; }, hadErr ? 6000 : 2500);
+  if (finished && !gHold) gHold = setTimeout(() => { batchIds.clear(); gHold = null; cancelFlag = false; g.style.display = "none"; }, hadErr ? 6000 : 2500);
   if (!finished && gHold) { clearTimeout(gHold); gHold = null; }
 }
 
@@ -512,6 +520,7 @@ document.addEventListener("change", e => {
   if (e.target.dataset.sel) { e.target.checked ? sel.add(e.target.dataset.sel) : sel.delete(e.target.dataset.sel); e.target.closest(".v").classList.toggle("picked", e.target.checked); updateSel(); }
 });
 $("#more").onclick = () => openBatch();
+$("#gcancel").onclick = () => { if (confirm("Cancelar todas as edições em andamento? Os vídeos voltam ao que eram antes.")) cancelJobs("all"); };
 $("#defstyle").onclick = () => openDefault();
 $("#capall").onclick = async () => {
   const ids = state.variations.filter(v => v.status==="ready" && v.cap!=="processing" && !v.edit?.captions?.enabled).map(v => v.id);
@@ -615,6 +624,7 @@ document.addEventListener("click", async (e) => {
   if (e.target.dataset.delClip) { await fetch(`/api/clips/${e.target.dataset.delClip}`, {method:"DELETE"}); refresh(); }
   if (e.target.dataset.delVar) { await fetch(`/api/variations/${e.target.dataset.delVar}`, {method:"DELETE"}); refresh(); }
   if (e.target.dataset.cancelUp) uploads.find(u => u.id === e.target.dataset.cancelUp)?.xhr.abort();
+  if (e.target.dataset.cancel) cancelJobs([e.target.dataset.cancel]);
   if (e.target.dataset.edit) openEditor(e.target.dataset.edit);
   if (e.target.dataset.style) openStyle(e.target.dataset.style);
   if (e.target.dataset.delRef && confirm("Excluir esta referência?")) { await fetch(`/api/refs/${e.target.dataset.delRef}`, {method:"DELETE"}); refresh(); }

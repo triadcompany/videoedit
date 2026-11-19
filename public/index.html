@@ -115,6 +115,11 @@
   .chip i { width:10px; height:10px; border-radius:50%; display:inline-block; border:1px solid #fff4 }
   .acts { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
   .rempty { color:var(--mut); margin:0 0 14px; max-width:620px }
+  .qbar { display:flex; flex-wrap:wrap; gap:12px 20px; align-items:center; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin:0 0 16px }
+  .q { display:flex; align-items:center; gap:8px; font-size:14px }
+  .q input[type=number] { width:64px }
+  .q input[type=text] { width:240px }
+  .q select { width:auto; max-width:170px }
   .pbar { height:5px; background:var(--line); border-radius:99px; overflow:hidden; margin-top:6px }
   .pbar i { display:block; height:100%; width:0; background:var(--acc); transition:width .2s }
   .up { border-style:dashed; border-color:var(--acc) }
@@ -132,13 +137,6 @@
   <nav class="nav"><a href="#criativos" data-view="main">Criativos</a><a href="#referencias" data-view="refs">Referências <span id="refcount" style="color:var(--mut)"></span></a></nav>
   <div id="headtools" style="display:flex;gap:12px;align-items:center">
     <span id="count" style="color:var(--mut)"></span>
-    <label class="inl" style="color:var(--mut);font-size:13px" title="Corta os silêncios maiores que esse tempo em todas as variações geradas">
-      <input type="checkbox" id="gencut"> Cortar pausas &gt;
-      <input type="number" id="gencutsec" value="2" min="0.5" max="10" step="0.5" style="width:58px"> s
-    </label>
-    <label class="inl" style="color:var(--mut);font-size:13px">Estilo:
-      <select id="genref" style="width:auto;max-width:180px"><option value="">sem referência</option></select>
-    </label>
     <button id="gen" disabled>Gerar variações</button>
   </div>
 </header>
@@ -157,8 +155,16 @@
     <h2>Variações geradas <span id="vcount" style="color:var(--mut);font-weight:400"></span></h2>
     <div class="tools" id="tools" style="display:none">
       <button class="sm line" id="selall">Selecionar todas</button>
-      <button class="sm" id="capsel" disabled>Editar selecionadas</button>
       <span class="hint" id="selinfo" style="margin:0"></span>
+    </div>
+    <div class="qbar" id="qbar" style="display:none">
+      <label class="q"><input type="checkbox" id="q_cut"> Cortar pausas maiores que <input type="number" id="q_cutsec" value="2" min="0.5" max="10" step="0.5"> s</label>
+      <label class="q"><input type="checkbox" id="q_cap"> Legenda
+        <select id="q_lang"><option value="pt">Português</option><option value="en">Inglês</option><option value="es">Espanhol</option><option value="auto">Detectar idioma</option></select></label>
+      <label class="q"><input type="checkbox" id="q_txt"> Texto na tela <input type="text" id="q_txtv" placeholder="Digite o texto" maxlength="200"></label>
+      <label class="q">Estilo <select id="q_ref"><option value="">padrão</option></select></label>
+      <button id="apply" disabled>Aplicar nos selecionados</button>
+      <button class="sm line" id="more" disabled title="Fonte, cor, tamanho, posição e tempo">Mais opções…</button>
     </div>
     <div class="grid" id="vars"></div>
   </section>
@@ -312,6 +318,15 @@ function patchList(box, items) {
 }
 const setText = (el, txt) => { if (el.textContent !== txt) el.textContent = txt; };
 
+function vTags(v) {
+  const e = v.edit || {}, t = [];
+  if (e.captions?.enabled) t.push("✎ legenda");
+  if (e.texts?.length) t.push("T texto");
+  if (v.baseFile) t.push(`✂ −${v.cutInfo?.removed ?? ""}s`.replace("−s", "cortado"));
+  else if (v.cutInfo) t.push(`✂ sem pausas >${v.cutInfo.minPause}s`);
+  return t.length ? `<span class="tag">${t.join(" · ")}</span>` : "";
+}
+
 function render() {
   const ready = (t) => state.clips.filter(c => c.type===t && c.status==="ready").length;
   const total = ready("hook") * ready("body") * ready("cta");
@@ -346,8 +361,8 @@ function render() {
   }
 
   setText($("#vcount"), state.variations.length ? `(${state.variations.length})` : "");
-  const gr = $("#genref");
-  const optsHtml = `<option value="">sem referência</option>` + state.refs.filter(r => r.status==="ready").map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join("");
+  const gr = $("#q_ref");
+  const optsHtml = `<option value="">padrão</option>` + state.refs.filter(r => r.status==="ready").map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join("");
   if (gr.dataset.sig !== optsHtml) {   // só mexe no select se a lista mudou (não fecha o menu aberto)
     const keep = gr.value;
     gr.innerHTML = optsHtml; gr.dataset.sig = optsHtml;
@@ -383,7 +398,9 @@ function render() {
 
   const ids = new Set(state.variations.map(v => v.id));
   [...sel].forEach(i => ids.has(i) || sel.delete(i));
-  $("#tools").style.display = state.variations.some(v => v.status==="ready") ? "" : "none";
+  const anyReady = state.variations.some(v => v.status==="ready");
+  $("#tools").style.display = anyReady ? "" : "none";
+  $("#qbar").style.display = anyReady ? "" : "none";
   patchList($("#vars"), state.variations.map(v => {
     const shown = v.capFile || v.baseFile || v.file;
     const capping = v.cap === "processing";
@@ -396,11 +413,10 @@ function render() {
         : `<div class="ph">${ph}</div>`}
       <div class="l">${esc(v.label)}</div>
       <div class="row">
-        ${capping ? `<span class="badge">legendando…</span>`
+        ${capping ? `<span class="badge">editando…</span>`
           : v.cap==="error" ? `<span class="badge error" title="${esc(v.capError)}">erro na legenda</span>`
           
-          : v.capFile ? `<span class="tag">✎ legendado</span>`
-          : v.baseFile ? `<span class="tag">✂ pausas cortadas</span>`
+          : vTags(v) ? vTags(v)
           : `<span class="badge ${v.status}">${v.status==="ready"?"pronto":v.status==="error"?"erro":v.status==="processing"?"gerando":"fila"}</span>`}
         <span>
           ${v.status==="ready" ? `<button class="ghost" style="color:var(--acc)" data-edit="${v.id}">${v.capFile?"ajustar":"legenda"}</button>
@@ -422,9 +438,11 @@ function render() {
 const sel = new Set();
 function updateSel() {
   const n = sel.size;
-  $("#capsel").disabled = !n;
-  $("#capsel").textContent = n ? `Editar selecionadas (${n})` : "Editar selecionadas";
-  $("#selinfo").textContent = n ? "" : "Marque as variações que quer legendar.";
+  const any = $("#q_cut").checked || $("#q_cap").checked || $("#q_txt").checked;
+  $("#apply").disabled = !n || !any;
+  $("#apply").textContent = n ? `Aplicar em ${n} selecionado${n>1?"s":""}` : "Aplicar nos selecionados";
+  $("#more").disabled = !n;
+  $("#selinfo").textContent = !n ? "Marque as variações que quer editar." : !any ? "Escolha o que fazer: cortar pausas, legenda e/ou texto na tela." : "";
 }
 $("#selall").onclick = () => {
   const ready = state.variations.filter(v => v.status==="ready");
@@ -434,7 +452,31 @@ $("#selall").onclick = () => {
 document.addEventListener("change", e => {
   if (e.target.dataset.sel) { e.target.checked ? sel.add(e.target.dataset.sel) : sel.delete(e.target.dataset.sel); e.target.closest(".v").classList.toggle("picked", e.target.checked); updateSel(); }
 });
-$("#capsel").onclick = () => openBatch();
+$("#more").onclick = () => openBatch();
+$("#qbar").addEventListener("input", () => { updateSel(); saveQuick(); });
+$("#qbar").addEventListener("change", () => { updateSel(); saveQuick(); });
+const saveQuick = () => { try { localStorage.setItem("quick", JSON.stringify({ cut:$("#q_cut").checked, sec:$("#q_cutsec").value, cap:$("#q_cap").checked, lang:$("#q_lang").value, txt:$("#q_txt").checked })); } catch {} };
+try {
+  const q = JSON.parse(localStorage.getItem("quick") || "null");
+  if (q) { $("#q_cut").checked = !!q.cut; if (q.sec) $("#q_cutsec").value = q.sec; $("#q_cap").checked = !!q.cap; if (q.lang) $("#q_lang").value = q.lang; $("#q_txt").checked = !!q.txt; }
+} catch {}
+
+$("#apply").onclick = async () => {
+  const refSt = state.refs.find(r => r.id === $("#q_ref").value)?.style;
+  const base = mergeStyle(refSt);   // estilo da referência escolhida ou o padrão
+  const ops = { ids:[...sel], language:$("#q_lang").value, captions:null, cut:null, text:null };
+  if ($("#q_cut").checked) ops.cut = { enabled:true, minPause: Math.max(0.5, +$("#q_cutsec").value || 2), keep:0.1 };
+  if ($("#q_cap").checked) { const { words, enabled, ...cap } = base.captions; ops.captions = cap; }
+  if ($("#q_txt").checked) {
+    const content = $("#q_txtv").value.trim();
+    if (!content) { $("#q_txtv").focus(); return alert("Digite o texto que vai aparecer na tela."); }
+    ops.text = { ...base.text, content };
+  }
+  $("#apply").disabled = true;
+  const r = await fetch("/api/variations/apply", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(ops) });
+  if (!r.ok) alert((await r.json()).error);
+  await refresh();
+};
 
 
 /* ---- envio com progresso: o card aparece na hora, antes do upload terminar ---- */
@@ -520,19 +562,11 @@ document.addEventListener("drop", e => {
 });
 
 $("#gen").onclick = async () => {
-  const r = await fetch("/api/generate", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ refId: $("#genref").value || null, language:"pt", cut: $("#gencut").checked ? { enabled:true, minPause: Math.max(0.5, +$("#gencutsec").value || 2), keep:0.1 } : null }) });
+  const r = await fetch("/api/generate", { method:"POST", headers:{"Content-Type":"application/json"}, body: "{}" });
   const j = await r.json();
   if (!r.ok) alert(j.error);
   refresh();
 };
-
-try {
-  const sv = JSON.parse(localStorage.getItem("gencut") || "null");
-  if (sv) { $("#gencut").checked = !!sv.on; if (sv.sec) $("#gencutsec").value = sv.sec; }
-} catch {}
-const saveGenCut = () => { try { localStorage.setItem("gencut", JSON.stringify({ on:$("#gencut").checked, sec:$("#gencutsec").value })); } catch {} };
-$("#gencut").addEventListener("change", saveGenCut);
-$("#gencutsec").addEventListener("input", saveGenCut);
 
 function setView() {
   const v = location.hash === "#referencias" ? "refs" : "main";
@@ -613,7 +647,10 @@ function openBatch() {
   mode = "batch";
   $("#edbox").className = "ed batch m-batch";
   cur = null;
-  ed = mergeStyle();
+  ed = mergeStyle(state.refs.find(r => r.id === $("#q_ref").value)?.style);
+  ed.captions.enabled = $("#q_cap").checked;
+  ed.cut.enabled = $("#q_cut").checked; ed.cut.minPause = Math.max(0.5, +$("#q_cutsec").value || 2);
+  ed.text.content = $("#q_txt").checked ? $("#q_txtv").value : "";
   $("#save").textContent = `Aplicar em ${sel.size} vídeo${sel.size>1?"s":""}`;
   $("#edtitle").textContent = `Editar ${sel.size} vídeo${sel.size>1?"s":""}`;
   fillFonts();
@@ -813,10 +850,9 @@ $("#save").onclick = async () => {
   const { words, enabled, ...cap } = ed.captions;
   const json = { method:"POST", headers:{"Content-Type":"application/json"} };
   if (mode === "batch") {
-    const r = await fetch("/api/captions/batch", { ...json,
-      body: JSON.stringify({ ids:[...sel], language:$("#lang").value, captions:cap, cut:ed.cut, text:ed.text, withCaptions: !!enabled }) });
-    if (!r.ok) alert((await r.json()).error);
-    sel.clear();
+    const r = await fetch("/api/variations/apply", { ...json,
+      body: JSON.stringify({ ids:[...sel], language:$("#lang").value, captions: enabled ? cap : null, cut: ed.cut.enabled ? ed.cut : null, text: ed.text.content.trim() ? ed.text : null }) });
+    if (!r.ok) { alert((await r.json()).error); $("#save").disabled = false; return; }
   } else if (mode === "style") {
     await fetch(`/api/refs/${cur.id}/style`, { ...json, method:"PUT", body: JSON.stringify({ captions:cap, cut:ed.cut, text:ed.text }) });
   } else {

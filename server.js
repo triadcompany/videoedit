@@ -157,7 +157,8 @@ async function cutPauses(src, out, { minPause = 0.4, keep = 0.1, segments = [] }
       if (b - a > 0.05) cuts.push([a, b]);
     }
   });
-  if (!cuts.length) return false;
+  if (!cuts.length) return 0;
+  const removed = cuts.reduce((acc, [a, b]) => acc + (b - a), 0);
   const keeps = [];
   let pos = 0;
   for (const [a, b] of cuts) { if (a - pos > 0.05) keeps.push([pos, a]); pos = b; }
@@ -178,7 +179,7 @@ async function cutPauses(src, out, { minPause = 0.4, keep = 0.1, segments = [] }
   } finally {
     fs.rmSync(script, { force: true });
   }
-  return true;
+  return removed;
 }
 
 // ---------- ler o texto na tela de uma referência (OCR local, sem API) ----------
@@ -560,6 +561,63 @@ async function captionJob(v, { language = "pt", captions = {}, cut = null, text 
   }
   await renderVariation(v);
 }
+
+// Edição incremental depois de gerar: mexe só no que foi pedido (cut / captions / text) e mantém o resto.
+async function applyOps(v, { language = "pt", captions = null, cut = null, text = null } = {}) {
+  v.cap = "processing";
+  save(db);
+  try {
+    const prev = v.edit || {};
+    const prevCap = prev.captions || {};
+    let baseChanged = false;
+    if (cut) {
+      const oldBase = v.baseFile;
+      v.baseFile = null;
+      const name = `cut-${Date.now()}-${v.id.slice(0, 4)}.mp4`;
+      const minPause = Math.min(10, Math.max(0.2, +cut.minPause || 2));
+      const removed = await cutPauses(path.join(DIRS.out, v.file), path.join(DIRS.out, name), { ...cut, minPause, segments: await variationSegments(v) });
+      if (removed > 0) v.baseFile = name;
+      v.cutInfo = { removed: +removed.toFixed(1), minPause };
+      if (oldBase && oldBase !== v.baseFile) fs.rmSync(path.join(DIRS.out, oldBase), { force: true });
+      baseChanged = true; // o vídeo-base mudou: o tempo das palavras antigas deixa de valer
+    }
+    const base = path.join(DIRS.out, v.baseFile || v.file);
+    const capOn = captions ? true : !!prevCap.enabled;
+    const { words: prevWords = [], enabled: _e, ...prevStyle } = prevCap;
+    let words = captions ? [] : prevWords;
+    if (capOn && (captions || baseChanged || !words.length)) {
+      words = await transcribeFile(base, language);
+      if (!words.length) throw new Error("nenhuma fala detectada");
+    }
+    let texts = prev.texts || [];
+    if (text && String(text.content || "").trim()) {
+      const dur = await duration(base);
+      const start = Math.max(0, +text.start || 0);
+      texts = [{ ...text, text: String(text.content).trim(), start, end: Math.min(dur, Math.max(start + 0.5, +text.end || start + 3)) }];
+    }
+    v.edit = { captions: { ...(captions || prevStyle), enabled: capOn, words: capOn ? words : [] }, texts };
+  } catch (e) {
+    v.cap = "error";
+    v.capError = e.message;
+    save(db);
+    return;
+  }
+  await renderVariation(v);
+}
+
+app.post("/api/variations/apply", (req, res) => {
+  const { ids = [], language = "pt", captions = null, cut = null, text = null } = req.body || {};
+  const hasText = !!String(text?.content || "").trim();
+  if (!captions && !cut && !hasText) return res.status(400).json({ error: "Escolha ao menos uma opção: cortar pausas, legenda ou texto na tela." });
+  const targets = db.variations.filter((v) => ids.includes(v.id) && v.status === "ready" && v.cap !== "processing");
+  if (!targets.length) return res.status(400).json({ error: "Nenhuma variação pronta selecionada." });
+  for (const v of targets) {
+    v.cap = "processing";
+    enqueue(() => applyOps(v, { language, captions, cut, text: hasText ? text : null }));
+  }
+  save(db);
+  res.json({ queued: targets.length });
+});
 
 // legenda várias variações de uma vez: (opcional) corta pausas, transcreve, aplica legenda + texto
 app.post("/api/captions/batch", (req, res) => {

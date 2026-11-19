@@ -118,6 +118,7 @@
   .rempty { color:var(--mut); margin:0 0 14px; max-width:620px }
   .qbar { display:flex; flex-wrap:wrap; gap:12px 20px; align-items:center; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin:0 0 16px }
   .q { display:flex; align-items:center; gap:8px; font-size:14px }
+  .q[hidden] { display:none }
   .q input[type=number] { width:64px }
   .q input[type=text] { width:240px }
   .q select { width:auto; max-width:170px }
@@ -177,6 +178,8 @@
       <label class="q"><input type="checkbox" id="q_cap"> Legenda
         <select id="q_lang"><option value="pt">Português</option><option value="en">Inglês</option><option value="es">Espanhol</option><option value="auto">Detectar idioma</option></select></label>
       <label class="q"><input type="checkbox" id="q_txt"> Texto na tela <input type="text" id="q_txtv" placeholder="Digite o texto" maxlength="200"></label>
+      <label class="q" title="Deixa o texto na tela do começo ao fim do vídeo"><input type="checkbox" id="q_txtall" checked> durante o vídeo todo</label>
+      <label class="q" id="q_txtdurbox" hidden>por <input type="number" id="q_txtdur" value="3" min="0.5" max="120" step="0.5"> s</label>
       <label class="q">Estilo <select id="q_ref"><option value="">padrão</option></select></label>
       <button id="apply" disabled>Aplicar nos selecionados</button>
       <button class="sm line" id="more" disabled title="Fonte, cor, tamanho, posição e tempo">Mais opções…</button>
@@ -527,13 +530,16 @@ $("#savedefault").onclick = async () => {
   if (r.ok) { state.defaults = await r.json(); b.textContent = "Salvo como padrão ✓"; } else b.textContent = "Erro ao salvar";
   setTimeout(() => { b.textContent = "Salvar como padrão"; }, 2200);
 };
+const syncTxtDur = () => { $("#q_txtdurbox").hidden = $("#q_txtall").checked; };
+$("#q_txtall").addEventListener("change", syncTxtDur);
 $("#qbar").addEventListener("input", () => { updateSel(); saveQuick(); });
 $("#qbar").addEventListener("change", () => { updateSel(); saveQuick(); });
-const saveQuick = () => { try { localStorage.setItem("quick", JSON.stringify({ cut:$("#q_cut").checked, sec:$("#q_cutsec").value, cap:$("#q_cap").checked, lang:$("#q_lang").value, txt:$("#q_txt").checked })); } catch {} };
+const saveQuick = () => { try { localStorage.setItem("quick", JSON.stringify({ cut:$("#q_cut").checked, sec:$("#q_cutsec").value, cap:$("#q_cap").checked, lang:$("#q_lang").value, txt:$("#q_txt").checked, txtall:$("#q_txtall").checked, txtdur:$("#q_txtdur").value })); } catch {} };
 try {
   const q = JSON.parse(localStorage.getItem("quick") || "null");
-  if (q) { $("#q_cut").checked = !!q.cut; if (q.sec) $("#q_cutsec").value = q.sec; $("#q_cap").checked = !!q.cap; if (q.lang) $("#q_lang").value = q.lang; $("#q_txt").checked = !!q.txt; }
+  if (q) { $("#q_cut").checked = !!q.cut; if (q.sec) $("#q_cutsec").value = q.sec; $("#q_cap").checked = !!q.cap; if (q.lang) $("#q_lang").value = q.lang; $("#q_txt").checked = !!q.txt; if (q.txtall !== undefined) $("#q_txtall").checked = !!q.txtall; if (q.txtdur) $("#q_txtdur").value = q.txtdur; }
 } catch {}
+syncTxtDur();
 
 $("#apply").onclick = async () => {
   const refSt = state.refs.find(r => r.id === $("#q_ref").value)?.style;
@@ -544,7 +550,7 @@ $("#apply").onclick = async () => {
   if ($("#q_txt").checked) {
     const content = $("#q_txtv").value.trim();
     if (!content) { $("#q_txtv").focus(); return alert("Digite o texto que vai aparecer na tela."); }
-    ops.text = { ...base.text, content };
+    ops.text = { ...base.text, content, start: 0, end: $("#q_txtall").checked ? 999 : Math.max(0.5, +$("#q_txtdur").value || 3) };
   }
   $("#apply").disabled = true;
   const r = await fetch("/api/variations/apply", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(ops) });
@@ -725,6 +731,7 @@ function openBatch() {
   ed.captions.enabled = $("#q_cap").checked;
   ed.cut.enabled = $("#q_cut").checked; ed.cut.minPause = Math.max(0.5, +$("#q_cutsec").value || 2);
   ed.text.content = $("#q_txt").checked ? $("#q_txtv").value : "";
+  ed.text.start = 0; ed.text.end = $("#q_txtall").checked ? 999 : Math.max(0.5, +$("#q_txtdur").value || 3);
   $("#save").textContent = `Aplicar em ${sel.size} vídeo${sel.size>1?"s":""}`;
   $("#edtitle").textContent = `Editar ${sel.size} vídeo${sel.size>1?"s":""}`;
   fillFonts();
@@ -867,7 +874,7 @@ function renderTexts() {
         <label class="fl inl" style="flex-direction:row;align-items:center"><input type="checkbox" data-k="box" ${t.box?"checked":""}> Fundo (caixa)</label>
         <label class="fl">Cor do fundo <input type="color" data-k="boxColor" value="${t.boxColor}"></label>
       </div>
-      <div class="bar"><button class="ghost" data-rm="${i}">remover texto</button></div>
+      <div class="bar"><button class="sm line" data-whole="1">Texto no vídeo todo</button><button class="ghost" data-rm="${i}">remover texto</button></div>
     </div>`).join("") || `<div class="hint">Nenhum texto ainda. Clique em “+ Adicionar texto”.</div>`;
 }
 $("#addtext").onclick = () => {
@@ -886,6 +893,11 @@ $("#texts").addEventListener("input", e => {
 $("#texts").addEventListener("click", e => {
   const card = e.target.closest("[data-t]");
   if (e.target.dataset.rm !== undefined) { ed.texts.splice(+e.target.dataset.rm, 1); renderTexts(); paint(); }
+  if (e.target.dataset.whole && card) {
+    const t = ed.texts[card.dataset.t];
+    t.start = 0; t.end = +(($("#pv").duration || 999)).toFixed(1);
+    renderTexts(); paint();
+  }
   if (e.target.dataset.now && card) {
     const t = ed.texts[card.dataset.t];
     t[e.target.dataset.now] = +$("#pv").currentTime.toFixed(1);

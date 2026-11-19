@@ -86,13 +86,27 @@ export function buildAss(edit) {
     );
     const up = (t) => (c.upper === false ? t : t.toUpperCase());
     const perLine = Math.round(clamp(c.wordsPerLine ?? 3, 1, 8));
+    // Linha do tempo sem sobreposição: o Whisper às vezes devolve palavras com tempos que se cruzam,
+    // e cada frase ainda fica um instante após a última palavra. Aqui garantimos que só uma frase
+    // aparece por vez: a frase atual sai exatamente quando a próxima entra.
     const words = c.words
       .filter((w) => w && String(w.t).trim())
-      .map((w) => ({ s: +w.s, e: +w.e, t: String(w.t).trim() }));
-    for (const group of groupWords(words, perLine)) {
+      .map((w) => ({ s: +w.s, e: +w.e, t: String(w.t).trim() }))
+      .sort((x, y) => x.s - y.s);
+    let lastS = 0;
+    for (const w of words) {
+      w.s = Math.max(w.s, lastS);            // nunca começa antes da palavra anterior
+      w.e = Math.max(w.e, w.s + 0.05);
+      lastS = w.s;
+    }
+    const groups = groupWords(words, perLine);
+    groups.forEach((group, gi) => {
+      const nextStart = groups[gi + 1] ? groups[gi + 1][0].s : Infinity;
       group.forEach((cur, i) => {
         const start = cur.s;
-        const end = i < group.length - 1 ? group[i + 1].s : cur.e + 0.12;
+        let end = i < group.length - 1 ? group[i + 1].s : cur.e + 0.12;
+        end = Math.min(end, nextStart);       // corta na entrada da próxima frase
+        if (end - start < 0.03) return;       // palavra instantânea: a vizinha já cobre
         const text = group
           .map((w, j) => {
             const t = esc(up(w.t));
@@ -102,10 +116,10 @@ export function buildAss(edit) {
           })
           .join(" ");
         events.push(
-          `Dialogue: 0,${time(start)},${time(Math.max(end, start + 0.05))},Cap,,0,0,0,,{\\an5\\pos(${W / 2},${y})}${text}`
+          `Dialogue: 0,${time(start)},${time(end)},Cap,,0,0,0,,{\\an5\\pos(${W / 2},${y})}${text}`
         );
       });
-    }
+    });
   }
 
   // ---------- textos / efeitos ----------

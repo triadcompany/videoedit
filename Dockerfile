@@ -20,6 +20,7 @@ ENV DATA_DIR=/data \
     WHISPER_BIN=/usr/local/bin/whisper-cli \
     WHISPER_MODEL=small \
     PORT=80
-VOLUME /data
+# IMPORTANTE: sem "VOLUME /data" aqui de propósito. Ele cria um volume anônimo novo a cada deploy e os dados somem.
+# Monte um volume NOMEADO em /data no EasyPanel (aba Mounts).
 EXPOSE 80
 CMD ["sh", "/app/docker-entrypoint.sh"]

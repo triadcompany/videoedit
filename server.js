@@ -405,11 +405,35 @@ const upload = multer({
 
 // /data só persiste se for um volume montado (device diferente do disco raiz do container)
 const IN_CONTAINER = fs.existsSync("/.dockerenv") || fs.existsSync("/run/.containerenv");
+
+// Lê /proc/self/mountinfo e diz se a pasta de dados está num volume DE VERDADE.
+// Sem volume, ou com volume anônimo (o Docker cria um novo a cada deploy), os dados somem.
+export function mountReason(mountinfo, dataPath) {
+  let best = null;
+  for (const line of mountinfo.split("\n")) {
+    const f = line.split(" ");
+    if (f.length < 6) continue;
+    const root = f[3], mp = f[4].replace(/\\040/g, " ");
+    if (dataPath === mp || dataPath.startsWith(mp.endsWith("/") ? mp : mp + "/")) {
+      if (!best || mp.length >= best.mp.length) best = { root, mp };
+    }
+  }
+  if (!best || best.mp === "/") return "none";
+  if (/\/volumes\/[0-9a-f]{64}\/_data/.test(best.root)) return "anonymous";
+  return "ok";
+}
+
 function storageInfo() {
   // fora de container (ex.: no seu Mac) os dados ficam no disco normal: sempre persistem
   if (!IN_CONTAINER) return { persistent: true, path: DATA };
-  try { return { persistent: fs.statSync(DATA).dev !== fs.statSync("/").dev, path: DATA }; }
-  catch { return { persistent: true, path: DATA }; }
+  try {
+    const reason = mountReason(fs.readFileSync("/proc/self/mountinfo", "utf8"), path.resolve(DATA));
+    return { persistent: reason === "ok", reason, path: DATA };
+  } catch {
+    // sem mountinfo: cai na checagem antiga (dispositivo diferente do raiz)
+    try { return { persistent: fs.statSync(DATA).dev !== fs.statSync("/").dev, path: DATA }; }
+    catch { return { persistent: true, path: DATA }; }
+  }
 }
 app.get("/api/state", (_, res) => res.json({ ...db, storage: storageInfo() }));
 

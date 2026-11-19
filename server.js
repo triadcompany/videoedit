@@ -44,6 +44,8 @@ db.defaults ||= { captions: { ...CAPTION_DEFAULTS } };
 // jobs que ficaram "processing" de uma execução anterior viram erro
 db.clips.forEach((c) => c.status === "processing" && (c.status = "error", c.error = "interrompido"));
 db.refs.forEach((r) => r.status === "processing" && (r.status = "error", r.error = "interrompido"));
+db.variations.forEach((v) => delete v.prog);
+db.clips.forEach((c) => delete c.prog);
 db.variations.forEach((v) => v.cap === "processing" && (v.cap = "error", v.capError = "interrompido"));
 db.variations.forEach((v) => (v.status === "processing" || v.status === "queued") && (v.status = "error", v.error = "interrompido"));
 save(db);
@@ -73,6 +75,53 @@ function runAll(bin, args) {
   });
 }
 
+// ---------- progresso ----------
+// Divide o trabalho em etapas com pesos; cada etapa informa sua fração (0..1) e o total vira uma porcentagem.
+// Fica só na memória (holder.prog): não grava em disco a cada atualização.
+function progress(holder, steps) {
+  const total = steps.reduce((a, s) => a + s.w, 0) || 1;
+  let base = 0, idx = 0;
+  const set = (pct, stage) => { holder.prog = { pct: Math.max(0, Math.min(99, Math.round(pct))), stage }; };
+  return {
+    start(i) { idx = Math.min(i, steps.length - 1); base = steps.slice(0, idx).reduce((a, s) => a + s.w, 0); set((base / total) * 100, steps[idx].label); },
+    frac(f) { const x = Math.min(1, Math.max(0, f || 0)); set(((base + steps[idx].w * x) / total) * 100, steps[idx].label); },
+    end() { delete holder.prog; },
+  };
+}
+
+// ffmpeg com progresso real: lê out_time de "-progress pipe:1" e divide pela duração esperada da saída
+function runFfmpegProgress(args, totalSec, onFrac, opts = {}) {
+  return new Promise((resolve, reject) => {
+    const p = spawn(ffmpegPath, ["-progress", "pipe:1", "-nostats", ...args], opts);
+    let err = "", buf = "";
+    p.stdout.on("data", (d) => {
+      buf += d;
+      let i;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i);
+        buf = buf.slice(i + 1);
+        const m = /^out_time_(?:us|ms)=(\d+)/.exec(line);
+        if (m && totalSec > 0 && onFrac) onFrac(Math.min(1, +m[1] / 1e6 / totalSec));
+      }
+    });
+    p.stderr.on("data", (d) => (err += d));
+    p.on("error", reject);
+    p.on("close", (code) => (code === 0 ? resolve() : reject(new Error(err.split("\n").slice(-6).join("\n")))));
+  });
+}
+
+// como run(), mas deixa ver o stderr enquanto roda (whisper imprime o progresso lá)
+function runStream(bin, args, onErr) {
+  return new Promise((resolve, reject) => {
+    const p = spawn(bin, args);
+    let out = "", err = "";
+    p.stdout.on("data", (d) => (out += d));
+    p.stderr.on("data", (d) => { err += d; onErr?.(String(d)); });
+    p.on("error", reject);
+    p.on("close", (code) => (code === 0 ? resolve(out) : reject(new Error(err.split("\n").slice(-6).join("\n")))));
+  });
+}
+
 async function hasAudio(file) {
   const out = await run(ffprobe.path, [
     "-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", file,
@@ -86,8 +135,9 @@ async function duration(file) {
 }
 
 // Normaliza todo clipe pro mesmo formato (1080x1920, 30fps, aac) -> concatenação sem reencode
-async function normalize(input, output) {
+async function normalize(input, output, onFrac = null) {
   const audio = await hasAudio(input);
+  const total = await duration(input);
   const vf = `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=${FPS},format=yuv420p`;
   const args = ["-y", "-i", input];
   if (!audio) args.push("-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo");
@@ -98,7 +148,7 @@ async function normalize(input, output) {
     "-c:a", "aac", "-ar", "44100", "-ac", "2", "-b:a", "160k",
     "-shortest", "-movflags", "+faststart", output
   );
-  await run(ffmpegPath, args);
+  await runFfmpegProgress(args, total, onFrac);
 }
 
 async function concat(files, output) {
@@ -133,14 +183,16 @@ function enqueueP(fn) {
 
 // ---------- cortar pausas longas (jump cut) ----------
 
-async function cutPauses(src, out, { minPause = 0.4, keep = 0.1, segments = [] } = {}) {
+async function cutPauses(src, out, { minPause = 0.4, keep = 0.1, segments = [] } = {}, onFrac = null) {
   minPause = Math.min(10, Math.max(0.2, +minPause || 0.4));
   keep = Math.min(0.5, Math.max(0, +keep || 0));
   const total = await duration(src);
   const r = await runAll(ffmpegPath, ["-i", src, "-af", `silencedetect=noise=-32dB:d=${minPause}`, "-f", "null", "-"]);
   // Clipe INTEIRO sem áudio (b-roll mudo) não é pausa de fala: não corta. Pausa no meio de uma fala corta sempre.
   // "segments" = [início, fim] de cada clipe dentro do vídeo; silêncio digital (-80dB) que cobre quase um clipe todo é protegido.
+  onFrac?.(0.08);
   const syn = await runAll(ffmpegPath, ["-i", src, "-af", "silencedetect=noise=-80dB:d=0.5", "-f", "null", "-"]);
+  onFrac?.(0.15);
   const sStarts = [...syn.err.matchAll(/silence_start: (-?[\d.]+)/g)].map((m) => +m[1]);
   const sEnds = [...syn.err.matchAll(/silence_end: ([\d.]+)/g)].map((m) => +m[1]);
   const synthetic = sStarts.map((st, i) => [Math.max(0, st), sEnds[i] ?? total]);
@@ -174,11 +226,11 @@ async function cutPauses(src, out, { minPause = 0.4, keep = 0.1, segments = [] }
   const script = path.join(DIRS.tmp, crypto.randomUUID() + ".txt");
   fs.writeFileSync(script, graph);
   try {
-    await run(ffmpegPath, [
+    await runFfmpegProgress([
       "-y", "-i", src, "-filter_complex_script", script, "-map", "[v]", "-map", "[a]",
       "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-r", String(FPS), "-pix_fmt", "yuv420p",
       "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-movflags", "+faststart", out,
-    ]);
+    ], Math.max(0.5, total - removed), (f) => onFrac?.(0.15 + 0.85 * f));
   } finally {
     fs.rmSync(script, { force: true });
   }
@@ -322,18 +374,27 @@ async function analyzeRef(ref, rawPath) {
 // ---------- legendas: transcrição + render sobre o vídeo pronto ----------
 const hasEdit = (e) => !!((e?.captions?.enabled && e.captions.words?.length) || e?.texts?.some((t) => String(t.text || "").trim()));
 
-async function transcribeFile(videoPath, lang = "pt") {
+let tRatio = 1.2; // segundos de processamento por segundo de áudio; aprende com o uso (só para estimar a barra)
+async function transcribeFile(videoPath, lang = "pt", onFrac = null) {
   lang = String(lang).replace(/[^a-z-]/gi, "") || "pt";
   const wav = path.join(DIRS.tmp, crypto.randomUUID() + ".wav");
   try {
     await run(ffmpegPath, ["-y", "-i", videoPath, "-vn", "-ar", "16000", "-ac", "1", wav]);
+    const audioDur = await duration(wav);
+    const t0 = Date.now();
+    let real = false;
+    const timer = onFrac ? setInterval(() => { if (!real) onFrac(Math.min(0.95, (Date.now() - t0) / 1000 / (3 + audioDur * tRatio))); }, 500) : null;
     let out;
+    try {
     if (WHISPER_BIN) {
       if (!fs.existsSync(WHISPER_MODEL_PATH)) throw new Error("Modelo Whisper ainda não foi baixado: " + WHISPER_MODEL_PATH);
-      out = await run(WHISPER_BIN, [
-        "-m", WHISPER_MODEL_PATH, "-f", wav, "-l", lang, "-ml", "1", "-sow", "-np",
+      out = await runStream(WHISPER_BIN, [
+        "-m", WHISPER_MODEL_PATH, "-f", wav, "-l", lang, "-ml", "1", "-sow", "-pp",
         "-t", String(Math.min(8, os.cpus().length)),
-      ]);
+      ], (chunk) => {
+        const m = [...chunk.matchAll(/progress\s*=\s*(\d+)%/g)].pop();
+        if (m && onFrac) { real = true; onFrac(Math.min(0.98, +m[1] / 100)); }
+      });
     } else {
       const model = fs.existsSync(VIBE_CONFIG) ? JSON.parse(fs.readFileSync(VIBE_CONFIG, "utf8"))["model.path"] : null;
       if (!model || !fs.existsSync(model) || !fs.existsSync(VIBE))
@@ -343,6 +404,11 @@ async function transcribeFile(videoPath, lang = "pt") {
         ...(lang === "auto" ? ["--detect-language"] : ["-l", lang]),
       ]);
     }
+    } finally {
+      if (timer) clearInterval(timer);
+    }
+    if (audioDur > 2) tRatio = 0.5 * tRatio + 0.5 * Math.max(0.05, ((Date.now() - t0) / 1000 - 2) / audioDur);
+    onFrac?.(1);
     const re = /^\[(\d+):(\d+):(\d+)\.(\d+) --> (\d+):(\d+):(\d+)\.(\d+)\]\s?(.*)$/;
     const sec = (h, m, s_, ms) => +h * 3600 + +m * 60 + +s_ + +ms / 1000;
     return out.split("\n").map((l) => re.exec(l)).filter(Boolean)
@@ -354,7 +420,10 @@ async function transcribeFile(videoPath, lang = "pt") {
 }
 
 // grava a versão legendada em v.capFile (o vídeo original continua intacto)
-async function renderVariation(v) {
+async function renderVariation(v, pg = null, stepIdx = 0) {
+  const own = !pg;
+  if (own) pg = progress(v, [{ label: "Aplicando legenda e texto", w: 1 }]);
+  pg.start(stepIdx);
   v.cap = "processing";
   delete v.capError;
   save(db);
@@ -368,18 +437,13 @@ async function renderVariation(v) {
       const assName = v.id + ".ass";
       const outName = `cap-${Date.now()}-${v.id.slice(0, 4)}.mp4`;
       fs.writeFileSync(path.join(DIRS.tmp, assName), assText);
-      await new Promise((resolve, reject) => {
-        const pr = spawn(ffmpegPath, [
-          "-y", "-i", path.join(DIRS.out, v.baseFile || v.file),
-          "-vf", `ass=${assName}:fontsdir=${FONTS_DIR}`,
-          "-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-r", String(FPS), "-pix_fmt", "yuv420p",
-          "-c:a", "copy", "-movflags", "+faststart", path.join(DIRS.out, outName),
-        ], { cwd: DIRS.tmp });
-        let err = "";
-        pr.stderr.on("data", (d) => (err += d));
-        pr.on("error", reject);
-        pr.on("close", (code) => (code === 0 ? resolve() : reject(new Error(err.split("\n").slice(-6).join("\n")))));
-      });
+      const srcPath = path.join(DIRS.out, v.baseFile || v.file);
+      await runFfmpegProgress([
+        "-y", "-i", srcPath,
+        "-vf", `ass=${assName}:fontsdir=${FONTS_DIR}`,
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-r", String(FPS), "-pix_fmt", "yuv420p",
+        "-c:a", "copy", "-movflags", "+faststart", path.join(DIRS.out, outName),
+      ], await duration(srcPath), (f) => pg.frac(f), { cwd: DIRS.tmp });
       fs.rmSync(path.join(DIRS.tmp, assName), { force: true });
       if (old) fs.rmSync(path.join(DIRS.out, old), { force: true });
       v.capFile = outName;
@@ -389,6 +453,7 @@ async function renderVariation(v) {
     v.cap = "error";
     v.capError = e.message;
   }
+  if (own) pg.end();
   save(db);
 }
 
@@ -461,17 +526,20 @@ app.post("/api/clips/:type", upload.array("files"), (req, res) => {
       name: Buffer.from(f.originalname, "latin1").toString("utf8"),
       file: id + ".mp4",
       status: "processing",
+      prog: { pct: 0, stage: "Na fila" },
     };
     db.clips.push(clip);
     enqueue(async () => {
       try {
-        await normalize(f.path, path.join(DIRS.clips, clip.file));
+        clip.prog = { pct: 0, stage: "Convertendo" };
+        await normalize(f.path, path.join(DIRS.clips, clip.file), (fr) => { clip.prog = { pct: Math.min(99, Math.round(fr * 100)), stage: "Convertendo" }; });
         clip.duration = await duration(path.join(DIRS.clips, clip.file));
         clip.status = "ready";
       } catch (e) {
         clip.status = "error";
         clip.error = e.message;
       } finally {
+        delete clip.prog;
         fs.rm(f.path, { force: true }, () => {});
         save(db);
       }
@@ -509,6 +577,7 @@ app.put("/api/variations/:id/edit", (req, res) => {
   if (!v || v.status !== "ready") return res.sendStatus(404);
   v.edit = req.body || {};
   v.cap = "processing";
+  v.prog = { pct: 0, stage: "Na fila" };
   save(db);
   enqueue(() => renderVariation(v));
   res.json(v);
@@ -569,27 +638,40 @@ async function captionJob(v, { language = "pt", captions = {}, cut = null, text 
 async function applyOps(v, { language = "pt", captions = null, cut = null, text = null } = {}) {
   v.cap = "processing";
   save(db);
+  let pg = progress(v, [{ label: "Preparando", w: 1 }]);
+  pg.start(0);
+  let steps = [];
   try {
     const prev = v.edit || {};
     const prevCap = prev.captions || {};
+    const capOn = captions ? true : !!prevCap.enabled;
+    const needT = capOn && (captions || cut || !(prevCap.words || []).length);
+    steps = [
+      ...(cut ? [{ label: "Cortando pausas", w: 4 }] : []),
+      ...(needT ? [{ label: "Transcrevendo a fala", w: 5 }] : []),
+      { label: "Aplicando legenda e texto", w: 3 },
+    ];
+    pg = progress(v, steps);
+    let si = 0;
     let baseChanged = false;
     if (cut) {
+      pg.start(si++);
       const oldBase = v.baseFile;
       v.baseFile = null;
       const name = `cut-${Date.now()}-${v.id.slice(0, 4)}.mp4`;
       const minPause = Math.min(10, Math.max(0.2, +cut.minPause || 2));
-      const removed = await cutPauses(path.join(DIRS.out, v.file), path.join(DIRS.out, name), { ...cut, minPause, segments: await variationSegments(v) });
+      const removed = await cutPauses(path.join(DIRS.out, v.file), path.join(DIRS.out, name), { ...cut, minPause, segments: await variationSegments(v) }, (f) => pg.frac(f));
       if (removed > 0) v.baseFile = name;
       v.cutInfo = { removed: +removed.toFixed(1), minPause };
       if (oldBase && oldBase !== v.baseFile) fs.rmSync(path.join(DIRS.out, oldBase), { force: true });
       baseChanged = true; // o vídeo-base mudou: o tempo das palavras antigas deixa de valer
     }
     const base = path.join(DIRS.out, v.baseFile || v.file);
-    const capOn = captions ? true : !!prevCap.enabled;
     const { words: prevWords = [], enabled: _e, ...prevStyle } = prevCap;
     let words = captions ? [] : prevWords;
-    if (capOn && (captions || baseChanged || !words.length)) {
-      words = await transcribeFile(base, language);
+    if (needT) {
+      pg.start(si++);
+      words = await transcribeFile(base, language, (f) => pg.frac(f));
       if (!words.length) throw new Error("nenhuma fala detectada");
     }
     let texts = prev.texts || [];
@@ -602,10 +684,13 @@ async function applyOps(v, { language = "pt", captions = null, cut = null, text 
   } catch (e) {
     v.cap = "error";
     v.capError = e.message;
+    pg.end();
     save(db);
     return;
   }
-  await renderVariation(v);
+  await renderVariation(v, pg, steps.length - 1);
+  pg.end();
+  save(db);
 }
 
 app.post("/api/variations/apply", (req, res) => {
@@ -616,6 +701,7 @@ app.post("/api/variations/apply", (req, res) => {
   if (!targets.length) return res.status(400).json({ error: "Nenhuma variação pronta selecionada." });
   for (const v of targets) {
     v.cap = "processing";
+    v.prog = { pct: 0, stage: "Na fila" };
     enqueue(() => applyOps(v, { language, captions, cut, text: hasText ? text : null }));
   }
   save(db);
@@ -629,6 +715,7 @@ app.post("/api/captions/batch", (req, res) => {
   if (!targets.length) return res.status(400).json({ error: "Nenhuma variação pronta selecionada." });
   for (const v of targets) {
     v.cap = "processing";
+    v.prog = { pct: 0, stage: "Na fila" };
     enqueue(() => captionJob(v, { language, captions, cut, text, withCaptions: withCaptions !== false }));
   }
   save(db);

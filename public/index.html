@@ -121,6 +121,14 @@
   .q input[type=number] { width:64px }
   .q input[type=text] { width:240px }
   .q select { width:auto; max-width:170px }
+  .pbar2 { height:7px; background:var(--line); border-radius:99px; overflow:hidden }
+  .pbar2 i { display:block; height:100%; width:0; background:var(--acc); border-radius:99px; transition:width .5s linear }
+  .ptxt { display:flex; justify-content:space-between; gap:8px; font-size:12px; color:var(--mut); margin-top:5px }
+  .ptxt b { color:var(--txt); font-variant-numeric:tabular-nums }
+  .prog { margin:8px 0 2px }
+  .gbar { background:var(--card); border:1px solid var(--acc); border-radius:12px; padding:12px 14px; margin:0 0 12px }
+  .gbar .gl { display:flex; justify-content:space-between; gap:12px; margin-bottom:8px; font-size:14px }
+  .gbar .pbar2 { height:10px }
   .pbar { height:5px; background:var(--line); border-radius:99px; overflow:hidden; margin-top:6px }
   .pbar i { display:block; height:100%; width:0; background:var(--acc); transition:width .2s }
   .up { border-style:dashed; border-color:var(--acc) }
@@ -159,6 +167,10 @@
       <button class="sm" id="capall" title="Coloca legenda, no estilo padrão, em todas as variações que ainda não têm">Legendar todos</button>
       <button class="sm line" id="defstyle" title="Fonte, cor, tamanho e posição que valem por padrão">Estilo padrão da legenda…</button>
       <span class="hint" id="selinfo" style="margin:0"></span>
+    </div>
+    <div class="gbar" id="gbar" style="display:none">
+      <div class="gl"><span id="gtxt"></span><b id="gpct"></b></div>
+      <div class="pbar2"><i id="gfill"></i></div>
     </div>
     <div class="qbar" id="qbar" style="display:none">
       <label class="q"><input type="checkbox" id="q_cut"> Cortar pausas maiores que <input type="number" id="q_cutsec" value="2" min="0.5" max="10" step="0.5"> s</label>
@@ -321,6 +333,8 @@ function patchList(box, items) {
 }
 const setText = (el, txt) => { if (el.textContent !== txt) el.textContent = txt; };
 
+const progBox = (key) => `<div class="prog" data-prog="${key}"><div class="pbar2"><i></i></div><div class="ptxt"><span class="pst"></span><b class="ppc"></b></div></div>`;
+
 function vTags(v) {
   const e = v.edit || {}, t = [];
   if (e.captions?.enabled) t.push("✎ legenda");
@@ -356,7 +370,7 @@ function render() {
         <div class="clip">
           ${c.status==="ready" ? `<video src="/media/clips/${c.file}#t=0.1" muted preload="metadata"></video>` : `<div style="width:48px;height:84px"></div>`}
           <div class="n">${esc(c.name)}
-            <small>${c.status==="ready"?"pronto":c.status==="error"?"erro":"processando…"}</small>
+            ${c.status==="processing" ? progBox("c"+c.id) : `<small>${c.status==="ready"?"pronto":"erro"}</small>`}
           </div>
           <button class="ghost" data-del-clip="${c.id}">✕</button>
         </div>` })),
@@ -414,6 +428,7 @@ function render() {
       ${v.status==="ready"
         ? `<video src="/media/output/${shown}" controls preload="metadata"></video>`
         : `<div class="ph">${ph}</div>`}
+      ${capping ? progBox(v.id) : ""}
       <div class="l">${esc(v.label)}</div>
       <div class="row">
         ${capping ? `<span class="badge">editando…</span>`
@@ -436,6 +451,41 @@ function render() {
     const cb = el.querySelector(".sel"); if (cb) cb.checked = on;
   });
   updateSel();
+  applyProgress();
+}
+
+// Progresso: atualiza só os números/barras (fora do HTML dos cards), para não recriar vídeos nem piscar
+let batchIds = new Set(), gHold = null;
+function applyProgress() {
+  const put = (key, p) => {
+    const el = document.querySelector(`[data-prog="${key}"]`);
+    if (!el) return;
+    const pct = p?.pct ?? 0;
+    el.querySelector("i").style.width = pct + "%";
+    el.querySelector(".pst").textContent = p?.stage || "Na fila";
+    el.querySelector(".ppc").textContent = pct + "%";
+  };
+  state.variations.forEach(v => { if (v.cap === "processing") put(v.id, v.prog); });
+  state.clips.forEach(c => { if (c.status === "processing") put("c" + c.id, c.prog); });
+
+  const proc = state.variations.filter(v => v.cap === "processing");
+  proc.forEach(v => batchIds.add(v.id));
+  const g = $("#gbar");
+  if (!batchIds.size) { g.style.display = "none"; return; }
+  const total = batchIds.size;
+  const done = [...batchIds].filter(id => !proc.some(v => v.id === id)).length;
+  const sum = proc.reduce((a, v) => a + (v.prog?.pct ?? 0), 0);
+  const finished = proc.length === 0;
+  const pct = finished ? 100 : Math.min(99, Math.round((done * 100 + sum) / total));
+  const hadErr = finished && [...batchIds].some(id => state.variations.find(v => v.id === id)?.cap === "error");
+  g.style.display = "";
+  $("#gfill").style.width = pct + "%";
+  $("#gpct").textContent = pct + "%";
+  $("#gtxt").textContent = finished
+    ? (hadErr ? "Concluído, mas alguns vídeos deram erro" : `Concluído ✓ ${total} vídeo${total>1?"s":""} editado${total>1?"s":""}`)
+    : `Editando ${total} vídeo${total>1?"s":""} · ${done} de ${total} concluído${done===1?"":"s"}`;
+  if (finished && !gHold) gHold = setTimeout(() => { batchIds.clear(); gHold = null; g.style.display = "none"; }, hadErr ? 6000 : 2500);
+  if (!finished && gHold) { clearTimeout(gHold); gHold = null; }
 }
 
 const sel = new Set();
@@ -605,7 +655,7 @@ setView();
 refresh();
 setInterval(() => {
   if (state.clips.some(c=>c.status==="processing") || state.refs.some(r=>r.status==="processing") || state.variations.some(v=>["queued","processing"].includes(v.status) || v.cap==="processing")) refresh();
-}, 2000);
+}, 1000);
 
 /* ================= EDITOR ================= */
 let cur = null;   // clipe aberto

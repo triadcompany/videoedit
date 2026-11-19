@@ -129,20 +129,30 @@ function enqueueP(fn) {
 }
 
 // ---------- cortar pausas longas (jump cut) ----------
-const MAX_CUT = 3.5; // silêncios maiores que isso provavelmente são trechos sem fala de propósito: mantém
 
-async function cutPauses(src, out, { minPause = 0.4, keep = 0.1 } = {}) {
-  minPause = Math.min(3, Math.max(0.2, +minPause || 0.4));
+async function cutPauses(src, out, { minPause = 0.4, keep = 0.1, segments = [] } = {}) {
+  minPause = Math.min(10, Math.max(0.2, +minPause || 0.4));
   keep = Math.min(0.5, Math.max(0, +keep || 0));
   const total = await duration(src);
   const r = await runAll(ffmpegPath, ["-i", src, "-af", `silencedetect=noise=-32dB:d=${minPause}`, "-f", "null", "-"]);
+  // Clipe INTEIRO sem áudio (b-roll mudo) não é pausa de fala: não corta. Pausa no meio de uma fala corta sempre.
+  // "segments" = [início, fim] de cada clipe dentro do vídeo; silêncio digital (-80dB) que cobre quase um clipe todo é protegido.
+  const syn = await runAll(ffmpegPath, ["-i", src, "-af", "silencedetect=noise=-80dB:d=0.5", "-f", "null", "-"]);
+  const sStarts = [...syn.err.matchAll(/silence_start: (-?[\d.]+)/g)].map((m) => +m[1]);
+  const sEnds = [...syn.err.matchAll(/silence_end: ([\d.]+)/g)].map((m) => +m[1]);
+  const synthetic = sStarts.map((st, i) => [Math.max(0, st), sEnds[i] ?? total]);
+  const overlap = (a, b) => synthetic.reduce((acc, [x, y]) => acc + Math.max(0, Math.min(b, y) - Math.max(a, x)), 0);
+  const mutedClip = (a, b) => segments.some(([x, y]) => {
+    const len = y - x;
+    return len > 0 && Math.max(0, Math.min(b, y) - Math.max(a, x)) / len >= 0.85 && overlap(Math.max(a, x), Math.min(b, y)) / len >= 0.85;
+  });
   const starts = [...r.err.matchAll(/silence_start: (-?[\d.]+)/g)].map((m) => +m[1]);
   const ends = [...r.err.matchAll(/silence_end: ([\d.]+)/g)].map((m) => +m[1]);
   const cuts = [];
   starts.forEach((st, i) => {
     const en = ends[i] ?? total;
     const len = en - st;
-    if (len >= minPause && len <= MAX_CUT) {
+    if (len >= minPause && !mutedClip(Math.max(0, st), en)) {
       const a = Math.max(0, st) + keep, b = en - keep;
       if (b - a > 0.05) cuts.push([a, b]);
     }
@@ -500,8 +510,22 @@ app.put("/api/variations/:id/edit", (req, res) => {
   res.json(v);
 });
 
+// início/fim de cada clipe (gancho, corpo, CTA) dentro do vídeo concatenado
+async function variationSegments(v) {
+  const segs = [];
+  let pos = 0;
+  for (const id of [v.hook, v.body, v.cta]) {
+    const c = db.clips.find((x) => x.id === id);
+    if (!c) return [];
+    const d = c.duration || (await duration(path.join(DIRS.clips, c.file)));
+    segs.push([pos, pos + d]);
+    pos += d;
+  }
+  return segs;
+}
+
 // corta pausas (opcional) -> transcreve -> aplica legenda + texto
-async function captionJob(v, { language = "pt", captions = {}, cut = null, text = null } = {}) {
+async function captionJob(v, { language = "pt", captions = {}, cut = null, text = null, withCaptions = true } = {}) {
   v.cap = "processing";
   save(db);
   try {
@@ -510,21 +534,24 @@ async function captionJob(v, { language = "pt", captions = {}, cut = null, text 
     v.baseFile = null;
     if (cut?.enabled) {
       const name = `cut-${Date.now()}-${v.id.slice(0, 4)}.mp4`;
-      if (await cutPauses(path.join(DIRS.out, v.file), path.join(DIRS.out, name), cut)) {
+      if (await cutPauses(path.join(DIRS.out, v.file), path.join(DIRS.out, name), { ...cut, segments: await variationSegments(v) })) {
         v.baseFile = name;
         base = name;
       }
     }
     if (oldBase && oldBase !== v.baseFile) fs.rmSync(path.join(DIRS.out, oldBase), { force: true });
-    const words = await transcribeFile(path.join(DIRS.out, base), language);
-    if (!words.length) throw new Error("nenhuma fala detectada");
+    let words = [];
+    if (withCaptions) {
+      words = await transcribeFile(path.join(DIRS.out, base), language);
+      if (!words.length) throw new Error("nenhuma fala detectada");
+    }
     const texts = [];
     if (String(text?.content || "").trim()) {
       const dur = await duration(path.join(DIRS.out, base));
       const start = Math.max(0, +text.start || 0);
       texts.push({ ...text, text: String(text.content).trim(), start, end: Math.min(dur, Math.max(start + 0.5, +text.end || start + 3)) });
     }
-    v.edit = { captions: { ...captions, enabled: true, words }, texts };
+    v.edit = { captions: { ...captions, enabled: withCaptions, words }, texts };
   } catch (e) {
     v.cap = "error";
     v.capError = e.message;
@@ -536,12 +563,12 @@ async function captionJob(v, { language = "pt", captions = {}, cut = null, text 
 
 // legenda várias variações de uma vez: (opcional) corta pausas, transcreve, aplica legenda + texto
 app.post("/api/captions/batch", (req, res) => {
-  const { ids = [], language = "pt", captions = {}, cut = null, text = null } = req.body || {};
+  const { ids = [], language = "pt", captions = {}, cut = null, text = null, withCaptions = true } = req.body || {};
   const targets = db.variations.filter((v) => ids.includes(v.id) && v.status === "ready" && v.cap !== "processing");
   if (!targets.length) return res.status(400).json({ error: "Nenhuma variação pronta selecionada." });
   for (const v of targets) {
     v.cap = "processing";
-    enqueue(() => captionJob(v, { language, captions, cut, text }));
+    enqueue(() => captionJob(v, { language, captions, cut, text, withCaptions: withCaptions !== false }));
   }
   save(db);
   res.json({ queued: targets.length });
@@ -605,6 +632,7 @@ app.delete("/api/refs/:id", (req, res) => {
 app.post("/api/generate", (req, res) => {
   const ref = db.refs.find((r) => r.id === req.body?.refId && r.status === "ready");
   const language = req.body?.language || "pt";
+  const quickCut = req.body?.cut?.enabled ? req.body.cut : null; // opção "cortar respiração" do topo
   const by = (t) => db.clips.filter((c) => c.type === t && c.status === "ready");
   const [hs, bs, cs] = TYPES.map(by);
   if (!hs.length || !bs.length || !cs.length)
@@ -617,7 +645,7 @@ app.post("/api/generate", (req, res) => {
       id: crypto.randomUUID(), hook: h.id, body: b.id, cta: c.id,
       label: `${h.name} + ${b.name} + ${c.name}`,
       file: null, status: "queued",
-      ...(ref ? { cap: "processing" } : {}),
+      ...(ref || quickCut ? { cap: "processing" } : {}),
     };
     db.variations.push(v);
     created++;
@@ -636,8 +664,10 @@ app.post("/api/generate", (req, res) => {
       }
       save(db);
       // já sai no estilo da referência escolhida
-      if (ref && v.status === "ready") {
-        await captionJob(v, { language, captions: ref.style?.captions, cut: ref.style?.cut, text: ref.style?.text });
+      if (v.status === "ready" && ref) {
+        await captionJob(v, { language, captions: ref.style?.captions, cut: quickCut || ref.style?.cut, text: ref.style?.text });
+      } else if (v.status === "ready" && quickCut) {
+        await captionJob(v, { cut: quickCut, withCaptions: false }); // só corta as pausas
       }
     });
   }

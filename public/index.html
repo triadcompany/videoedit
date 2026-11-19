@@ -89,7 +89,7 @@
   .ed:not(.batch) .only-multi { display:none }
   .ed:not(.m-batch) .only-batch { display:none }
   .ed:not(.m-style) .only-style { display:none }
-  .ed.m-style .no-style { display:none }
+  .ed.m-style .no-style, .ed.m-style .not-style { display:none }
   .frames { display:flex; gap:6px; overflow-x:auto; padding-bottom:4px }
   .frames img { height:150px; border-radius:6px; border:1px solid var(--line) }
   .refs { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:14px }
@@ -132,6 +132,10 @@
   <nav class="nav"><a href="#criativos" data-view="main">Criativos</a><a href="#referencias" data-view="refs">Referências <span id="refcount" style="color:var(--mut)"></span></a></nav>
   <div id="headtools" style="display:flex;gap:12px;align-items:center">
     <span id="count" style="color:var(--mut)"></span>
+    <label class="inl" style="color:var(--mut);font-size:13px" title="Corta os silêncios maiores que esse tempo em todas as variações geradas">
+      <input type="checkbox" id="gencut"> Cortar pausas &gt;
+      <input type="number" id="gencutsec" value="2" min="0.5" max="10" step="0.5" style="width:58px"> s
+    </label>
     <label class="inl" style="color:var(--mut);font-size:13px">Estilo:
       <select id="genref" style="width:auto;max-width:180px"><option value="">sem referência</option></select>
     </label>
@@ -153,7 +157,7 @@
     <h2>Variações geradas <span id="vcount" style="color:var(--mut);font-weight:400"></span></h2>
     <div class="tools" id="tools" style="display:none">
       <button class="sm line" id="selall">Selecionar todas</button>
-      <button class="sm" id="capsel" disabled>Legendar selecionadas</button>
+      <button class="sm" id="capsel" disabled>Editar selecionadas</button>
       <span class="hint" id="selinfo" style="margin:0"></span>
     </div>
     <div class="grid" id="vars"></div>
@@ -191,7 +195,7 @@
       <div class="blk">
         <div class="row">
           <h3 style="margin:0">Estilo da legenda</h3>
-          <label class="inl only-one"><input type="checkbox" id="c_enabled"> ativar</label>
+          <label class="inl not-style"><input type="checkbox" id="c_enabled"> legenda ligada</label>
         </div>
         <div class="inl" style="margin-top:12px">
           <select id="lang" class="no-style">
@@ -221,14 +225,14 @@
 
       <div class="blk only-multi">
         <div class="row">
-          <h3 style="margin:0">Cortar pausas longas</h3>
+          <h3 style="margin:0">Cortar respiração / pausas longas</h3>
           <label class="inl"><input type="checkbox" data-b="cut.enabled"> ativar</label>
         </div>
         <div class="f">
-          <label class="fl">Pausa mínima (s) <input type="number" step="0.05" min="0.2" max="3" data-b="cut.minPause" data-n></label>
+          <label class="fl">Cortar pausas maiores que (s) <input type="number" step="0.1" min="0.2" max="10" data-b="cut.minPause" data-n></label>
           <label class="fl">Respiro mantido (s) <input type="number" step="0.05" min="0" max="0.5" data-b="cut.keep" data-n></label>
         </div>
-        <div class="hint">Tira os silêncios maiores que a pausa mínima, deixando só o respiro. Silêncios acima de 3,5 s são mantidos (provavelmente são trechos sem fala de propósito).</div>
+        <div class="hint">Tira todo silêncio maior que esse tempo, deixando só um respiro curto para não ficar seco. Trechos de vídeo sem nenhum áudio (clipe mudo) são mantidos.</div>
       </div>
 
       <div class="blk only-multi">
@@ -381,7 +385,7 @@ function render() {
   [...sel].forEach(i => ids.has(i) || sel.delete(i));
   $("#tools").style.display = state.variations.some(v => v.status==="ready") ? "" : "none";
   patchList($("#vars"), state.variations.map(v => {
-    const shown = v.capFile || v.file;
+    const shown = v.capFile || v.baseFile || v.file;
     const capping = v.cap === "processing";
     const ph = v.status==="error"?"erro ao gerar":v.status==="processing"?"gerando…":"na fila";
     return { key:v.id, html:`
@@ -394,7 +398,9 @@ function render() {
       <div class="row">
         ${capping ? `<span class="badge">legendando…</span>`
           : v.cap==="error" ? `<span class="badge error" title="${esc(v.capError)}">erro na legenda</span>`
+          
           : v.capFile ? `<span class="tag">✎ legendado</span>`
+          : v.baseFile ? `<span class="tag">✂ pausas cortadas</span>`
           : `<span class="badge ${v.status}">${v.status==="ready"?"pronto":v.status==="error"?"erro":v.status==="processing"?"gerando":"fila"}</span>`}
         <span>
           ${v.status==="ready" ? `<button class="ghost" style="color:var(--acc)" data-edit="${v.id}">${v.capFile?"ajustar":"legenda"}</button>
@@ -417,7 +423,7 @@ const sel = new Set();
 function updateSel() {
   const n = sel.size;
   $("#capsel").disabled = !n;
-  $("#capsel").textContent = n ? `Legendar selecionadas (${n})` : "Legendar selecionadas";
+  $("#capsel").textContent = n ? `Editar selecionadas (${n})` : "Editar selecionadas";
   $("#selinfo").textContent = n ? "" : "Marque as variações que quer legendar.";
 }
 $("#selall").onclick = () => {
@@ -514,11 +520,19 @@ document.addEventListener("drop", e => {
 });
 
 $("#gen").onclick = async () => {
-  const r = await fetch("/api/generate", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ refId: $("#genref").value || null, language:"pt" }) });
+  const r = await fetch("/api/generate", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ refId: $("#genref").value || null, language:"pt", cut: $("#gencut").checked ? { enabled:true, minPause: Math.max(0.5, +$("#gencutsec").value || 2), keep:0.1 } : null }) });
   const j = await r.json();
   if (!r.ok) alert(j.error);
   refresh();
 };
+
+try {
+  const sv = JSON.parse(localStorage.getItem("gencut") || "null");
+  if (sv) { $("#gencut").checked = !!sv.on; if (sv.sec) $("#gencutsec").value = sv.sec; }
+} catch {}
+const saveGenCut = () => { try { localStorage.setItem("gencut", JSON.stringify({ on:$("#gencut").checked, sec:$("#gencutsec").value })); } catch {} };
+$("#gencut").addEventListener("change", saveGenCut);
+$("#gencutsec").addEventListener("input", saveGenCut);
 
 function setView() {
   const v = location.hash === "#referencias" ? "refs" : "main";
@@ -542,7 +556,7 @@ let ed = null;    // edição em andamento
 const defaults = () => ({
   captions: { enabled:false, preset:"destaque", font:"Anton", size:84, yPct:72, color:"#FFE600", wordsPerLine:3, upper:true, words:[] },
   texts: [],
-  cut: { enabled:false, minPause:0.4, keep:0.1 },
+  cut: { enabled:false, minPause:2, keep:0.1 },
   text: { content:"", anim:"pop", font:"Anton", color:"#FFFFFF", size:96, yPct:25, start:0, end:3, box:false, boxColor:"#000000" }
 });
 
@@ -600,8 +614,8 @@ function openBatch() {
   $("#edbox").className = "ed batch m-batch";
   cur = null;
   ed = mergeStyle();
-  $("#save").textContent = `Legendar ${sel.size} vídeo${sel.size>1?"s":""}`;
-  $("#edtitle").textContent = `Legendar ${sel.size} vídeo${sel.size>1?"s":""}`;
+  $("#save").textContent = `Aplicar em ${sel.size} vídeo${sel.size>1?"s":""}`;
+  $("#edtitle").textContent = `Editar ${sel.size} vídeo${sel.size>1?"s":""}`;
   fillFonts();
   const ready = state.refs.filter(r => r.status === "ready");
   $("#refsel").innerHTML = `<option value="">Manual (sem referência)</option>` + ready.map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join("");
@@ -800,7 +814,7 @@ $("#save").onclick = async () => {
   const json = { method:"POST", headers:{"Content-Type":"application/json"} };
   if (mode === "batch") {
     const r = await fetch("/api/captions/batch", { ...json,
-      body: JSON.stringify({ ids:[...sel], language:$("#lang").value, captions:cap, cut:ed.cut, text:ed.text }) });
+      body: JSON.stringify({ ids:[...sel], language:$("#lang").value, captions:cap, cut:ed.cut, text:ed.text, withCaptions: !!enabled }) });
     if (!r.ok) alert((await r.json()).error);
     sel.clear();
   } else if (mode === "style") {

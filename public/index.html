@@ -90,6 +90,7 @@
   .ed:not(.m-batch) .only-batch { display:none }
   .ed:not(.m-style) .only-style { display:none }
   .ed.m-style .no-style, .ed.m-style .not-style { display:none }
+  .ed.m-default .only-style, .ed.m-default .only-multi { display:none }
   .frames { display:flex; gap:6px; overflow-x:auto; padding-bottom:4px }
   .frames img { height:150px; border-radius:6px; border:1px solid var(--line) }
   .refs { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:14px }
@@ -155,6 +156,8 @@
     <h2>Variações geradas <span id="vcount" style="color:var(--mut);font-weight:400"></span></h2>
     <div class="tools" id="tools" style="display:none">
       <button class="sm line" id="selall">Selecionar todas</button>
+      <button class="sm" id="capall" title="Coloca legenda, no estilo padrão, em todas as variações que ainda não têm">Legendar todos</button>
+      <button class="sm line" id="defstyle" title="Fonte, cor, tamanho e posição que valem por padrão">Estilo padrão da legenda…</button>
       <span class="hint" id="selinfo" style="margin:0"></span>
     </div>
     <div class="qbar" id="qbar" style="display:none">
@@ -201,7 +204,7 @@
       <div class="blk">
         <div class="row">
           <h3 style="margin:0">Estilo da legenda</h3>
-          <label class="inl not-style"><input type="checkbox" id="c_enabled"> legenda ligada</label>
+          <span class="inl not-style"><button class="sm line" id="savedefault" title="Usar este estilo como padrão de todas as legendas">Salvar como padrão</button><label class="inl"><input type="checkbox" id="c_enabled"> legenda ligada</label></span>
         </div>
         <div class="inl" style="margin-top:12px">
           <select id="lang" class="no-style">
@@ -442,6 +445,9 @@ function updateSel() {
   $("#apply").disabled = !n || !any;
   $("#apply").textContent = n ? `Aplicar em ${n} selecionado${n>1?"s":""}` : "Aplicar nos selecionados";
   $("#more").disabled = !n;
+  const noCap = state.variations.filter(v => v.status==="ready" && v.cap!=="processing" && !v.edit?.captions?.enabled).length;
+  $("#capall").disabled = !noCap;
+  $("#capall").textContent = noCap ? `Legendar todos (${noCap})` : "Legendar todos";
   $("#selinfo").textContent = !n ? "Marque as variações que quer editar." : !any ? "Escolha o que fazer: cortar pausas, legenda e/ou texto na tela." : "";
 }
 $("#selall").onclick = () => {
@@ -453,6 +459,24 @@ document.addEventListener("change", e => {
   if (e.target.dataset.sel) { e.target.checked ? sel.add(e.target.dataset.sel) : sel.delete(e.target.dataset.sel); e.target.closest(".v").classList.toggle("picked", e.target.checked); updateSel(); }
 });
 $("#more").onclick = () => openBatch();
+$("#defstyle").onclick = () => openDefault();
+$("#capall").onclick = async () => {
+  const ids = state.variations.filter(v => v.status==="ready" && v.cap!=="processing" && !v.edit?.captions?.enabled).map(v => v.id);
+  if (!ids.length) return;
+  const refSt = state.refs.find(r => r.id === $("#q_ref").value)?.style;
+  const { words, enabled, ...cap } = mergeStyle(refSt).captions;   // estilo padrão (ou o da referência escolhida)
+  $("#capall").disabled = true;
+  const r = await fetch("/api/variations/apply", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ ids, language:$("#q_lang").value, captions:cap }) });
+  if (!r.ok) alert((await r.json()).error);
+  await refresh();
+};
+$("#savedefault").onclick = async () => {
+  const { words, enabled, ...cap } = ed.captions;
+  const r = await fetch("/api/defaults", { method:"PUT", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ captions:cap }) });
+  const b = $("#savedefault");
+  if (r.ok) { state.defaults = await r.json(); b.textContent = "Salvo como padrão ✓"; } else b.textContent = "Erro ao salvar";
+  setTimeout(() => { b.textContent = "Salvar como padrão"; }, 2200);
+};
 $("#qbar").addEventListener("input", () => { updateSel(); saveQuick(); });
 $("#qbar").addEventListener("change", () => { updateSel(); saveQuick(); });
 const saveQuick = () => { try { localStorage.setItem("quick", JSON.stringify({ cut:$("#q_cut").checked, sec:$("#q_cutsec").value, cap:$("#q_cap").checked, lang:$("#q_lang").value, txt:$("#q_txt").checked })); } catch {} };
@@ -588,7 +612,7 @@ let cur = null;   // clipe aberto
 let ed = null;    // edição em andamento
 
 const defaults = () => ({
-  captions: { enabled:false, preset:"destaque", font:"Anton", size:84, yPct:72, color:"#FFE600", wordsPerLine:3, upper:true, words:[] },
+  captions: { enabled:false, preset:"classica", font:"Poppins Medium", size:68, yPct:64, color:"#FFE600", wordsPerLine:3, upper:false, ...(state.defaults?.captions || {}), words:[] },
   texts: [],
   cut: { enabled:false, minPause:2, keep:0.1 },
   text: { content:"", anim:"pop", font:"Anton", color:"#FFFFFF", size:96, yPct:25, start:0, end:3, box:false, boxColor:"#000000" }
@@ -613,10 +637,10 @@ const fillFonts = () => document.querySelectorAll("#c_font, #t_font").forEach(sl
 const mergeStyle = (st = {}) => {
   const d = defaults();
   return {
-    captions: { ...d.captions, ...(st.captions||{}), font: normFont(st.captions?.font), words: [], enabled: true },
+    captions: { ...d.captions, ...(st.captions||{}), font: normFont(st.captions?.font || d.captions.font), words: [], enabled: true },
     texts: [],
     cut: { ...d.cut, ...(st.cut||{}) },
-    text: { ...d.text, ...(st.text||{}), font: normFont(st.text?.font), content: st.text?.content || "" },
+    text: { ...d.text, ...(st.text||{}), font: normFont(st.text?.font || d.text.font), content: st.text?.content || "" },
   };
 };
 
@@ -627,7 +651,7 @@ function openEditor(id) {
   cur = state.variations.find(v => v.id === id);
   const d = defaults();
   const saved = cur.edit ? JSON.parse(JSON.stringify(cur.edit)) : {};
-  ed = { ...d, captions: { ...d.captions, ...(saved.captions||{}), font: normFont(saved.captions?.font) }, texts: (saved.texts || []).map(t => ({ ...t, font: normFont(t.font) })) };
+  ed = { ...d, captions: { ...d.captions, ...(saved.captions||{}), font: normFont(saved.captions?.font || d.captions.font) }, texts: (saved.texts || []).map(t => ({ ...t, font: normFont(t.font) })) };
   $("#save").textContent = "Salvar e renderizar";
   $("#edtitle").textContent = cur.label;
   fillFonts();
@@ -682,6 +706,24 @@ $("#refsel").onchange = () => {
   if (!ed.text.content) ed.text.content = typed;
   loadCaptionForm(); loadBound();
 };
+
+function openDefault() {
+  mode = "default";
+  $("#edbox").className = "ed batch m-style m-default";
+  cur = null;
+  ed = mergeStyle();   // o estilo padrão atual
+  $("#save").textContent = "Salvar estilo padrão";
+  $("#edtitle").textContent = "Estilo padrão da legenda";
+  fillFonts();
+  const v = $("#pv");
+  v.muted = true;
+  const first = state.variations.find(x => x.status === "ready");
+  if (first) { v.src = `/media/output/${first.baseFile || first.file}`; v.play().catch(()=>{}); } else v.removeAttribute("src");
+  loadCaptionForm();
+  loadBound();
+  $("#modal").classList.add("open");
+  document.body.style.overflow = "hidden";
+}
 
 function openStyle(id) {
   mode = "style";
@@ -811,7 +853,7 @@ function groupWords(words, n) {
 function paint() {
   const ov = $("#ov"); if (!ov || !ed) return;
   const scale = $(".stage").clientWidth / 1080;
-  const style = mode === "style";
+  const style = mode === "style" || mode === "default";
   const t = style ? $("#pv").currentTime % 4 : $("#pv").currentTime;
   let html = "";
   const c = ed.captions;
@@ -832,7 +874,7 @@ function paint() {
       }
     }
   }
-  const overlays = style ? [{ ...ed.text, text: ed.text.content || "Texto na tela", start:0, end:99 }] : ed.texts;
+  const overlays = mode === "default" ? [] : style ? [{ ...ed.text, text: ed.text.content || "Texto na tela", start:0, end:99 }] : ed.texts;
   for (const x of overlays) {
     if (!x.text.trim() || t < x.start || t > x.end) continue;
     html += `<div style="top:${x.yPct}%;font:${x.size*scale}px '${x.font}';color:${x.color};white-space:pre-wrap;
@@ -853,6 +895,9 @@ $("#save").onclick = async () => {
     const r = await fetch("/api/variations/apply", { ...json,
       body: JSON.stringify({ ids:[...sel], language:$("#lang").value, captions: enabled ? cap : null, cut: ed.cut.enabled ? ed.cut : null, text: ed.text.content.trim() ? ed.text : null }) });
     if (!r.ok) { alert((await r.json()).error); $("#save").disabled = false; return; }
+  } else if (mode === "default") {
+    const r = await fetch("/api/defaults", { ...json, method:"PUT", body: JSON.stringify({ captions:cap }) });
+    if (r.ok) state.defaults = await r.json(); else alert("Não foi possível salvar o estilo padrão.");
   } else if (mode === "style") {
     await fetch(`/api/refs/${cur.id}/style`, { ...json, method:"PUT", body: JSON.stringify({ captions:cap, cut:ed.cut, text:ed.text }) });
   } else {

@@ -8,7 +8,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { buildAss, FONTS_DIR } from "./edit.js";
+import { buildAss, FONTS_DIR, FONTS } from "./edit.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA = process.env.DATA_DIR || path.join(__dirname, "data");
@@ -38,6 +38,9 @@ const load = () =>
 const save = (db) => fs.writeFileSync(DB, JSON.stringify(db, null, 2));
 let db = load();
 db.refs ||= [];
+// estilo padrão das legendas (editável no painel e salvo junto com os dados)
+const CAPTION_DEFAULTS = { preset: "classica", font: "Poppins Medium", size: 68, yPct: 64, color: "#FFE600", wordsPerLine: 3, upper: false };
+db.defaults ||= { captions: { ...CAPTION_DEFAULTS } };
 // jobs que ficaram "processing" de uma execução anterior viram erro
 db.clips.forEach((c) => c.status === "processing" && (c.status = "error", c.error = "interrompido"));
 db.refs.forEach((r) => r.status === "processing" && (r.status = "error", r.error = "interrompido"));
@@ -295,7 +298,7 @@ async function analyzeRef(ref, rawPath) {
     ref.metrics = { duration: dur, cutsPerMin: dur ? +(cuts / dur * 60).toFixed(1) : 0, longPauses, pauseTime: +pauses.reduce((a, b) => a + b, 0).toFixed(1) };
     // referência sem pausas longas = edição "seca": liga o corte de pausas por padrão
     ref.style = {
-      captions: { preset: "destaque", font: "Anton", size: 84, yPct: 72, color: "#FFE600", wordsPerLine: 3, upper: true },
+      captions: { ...db.defaults.captions },
       cut: { enabled: longPauses === 0 && dur > 5, minPause: 0.4, keep: 0.1 },
       text: { anim: "pop", font: "Anton", color: "#FFFFFF", size: 96, yPct: 25, start: 0, end: 3, box: false, boxColor: "#000000" },
     };
@@ -658,6 +661,23 @@ app.post("/api/refs/:id/read-text", async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: "Não foi possível ler o texto: " + e.message });
   }
+});
+
+app.put("/api/defaults", (req, res) => {
+  const c = req.body?.captions || {};
+  const cur = db.defaults.captions;
+  const n = (v, a, b, d) => Math.min(b, Math.max(a, Number.isFinite(+v) ? +v : d));
+  db.defaults.captions = {
+    preset: ["destaque", "classica", "caixa"].includes(c.preset) ? c.preset : cur.preset,
+    font: FONTS.includes(c.font) ? c.font : cur.font,
+    size: n(c.size, 30, 200, cur.size),
+    yPct: n(c.yPct, 5, 95, cur.yPct),
+    color: /^#[0-9a-f]{6}$/i.test(c.color || "") ? c.color : cur.color,
+    wordsPerLine: Math.round(n(c.wordsPerLine, 1, 8, cur.wordsPerLine)),
+    upper: c.upper === undefined ? cur.upper : !!c.upper,
+  };
+  save(db);
+  res.json(db.defaults);
 });
 
 app.put("/api/refs/:id/style", (req, res) => {

@@ -281,6 +281,13 @@
   .eqrow:first-child { border-top:0 }
   .eqrow .nm { overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
   .eqrow .vol { text-align:right; font-variant-numeric:tabular-nums }
+  .suggest { display:flex; align-items:center; flex-wrap:wrap; gap:10px 14px; margin-top:14px; padding:12px 14px; border-radius:10px; background:var(--accent-soft) }
+  .suggest > .i { width:20px; height:20px; color:var(--accent-hi) }
+  .suggest .sg-copy { flex:1 1 220px; min-width:0 }
+  .suggest b { font-weight:600 }
+  .suggest p { margin-top:2px; font-size:13px; color:var(--text-2) }
+  .suggest .acts { margin-left:auto }
+  .suggest .switch { flex-basis:100%; font-weight:500; font-size:13px; color:var(--text-2) }
   .dots { display:inline-flex; gap:6px; align-items:center }
   .dot { width:9px; height:9px; border-radius:50%; border:1.5px solid var(--line-2) }
   .dot.done { background:var(--ok); border-color:var(--ok) }
@@ -519,6 +526,12 @@
         </div>
         <label class="fl" style="margin-top:12px">Arraste para escolher o início <input type="range" id="rs" min="0" step="0.05"></label>
         <label class="fl" style="margin-top:8px">Arraste para escolher o fim <input type="range" id="re" min="0" step="0.05"></label>
+        <div class="suggest" id="tSuggest" hidden>
+          <svg class="i"><use href="#i-wand"/></svg>
+          <div class="sg-copy"><b>Sugestão pelo silêncio</b><p id="sgText"></p></div>
+          <div class="acts inl"><button class="sm" id="sgUse" disabled>Usar sugestão</button><button class="sm line" id="sgReset">Vídeo inteiro</button></div>
+          <label class="switch"><input type="checkbox" id="tAuto" checked><span class="track"></span>Já abrir cada vídeo com a sugestão aplicada</label>
+        </div>
         <div class="inl" style="margin-top:12px"><button class="sm line" id="tPlay"><svg class="i fill"><use href="#i-play"/></svg>Ver só o trecho</button><span class="hint" id="tInfo" style="margin:0"></span></div>
         <div class="hint">Tire só o que sobra no começo e no fim. Se já está bom, clique em OK. Use o botão de alvo para marcar o ponto exato onde o vídeo está parado.</div>
         <div class="bar" style="margin-top:16px"><button class="line" id="tBack"><svg class="i "><use href="#i-arrow-left"/></svg>Voltar</button><button id="tOk">OK, próximo<svg class="i "><use href="#i-arrow-right"/></svg></button></div>
@@ -1284,7 +1297,7 @@ function openTreat(onlyIds) {
   $("#edbox").className = "ed m-treat";
   ed = {};
   cur = null;
-  treat = { list: list.map(c => c.id), i: 0, step: list.length ? "trim" : "eq", gains: {}, trims: {} };
+  treat = { list: list.map(c => c.id), i: 0, step: list.length ? "trim" : "eq", gains: {}, trims: {}, suggest: {}, touched: {} };
   $("#edtitle").textContent = "Tratamento dos vídeos";
   $("#cancel").textContent = "Fechar";
   $("#pv").muted = false;
@@ -1317,7 +1330,47 @@ function renderTrim() {
   v.load();
   treatPlay = null;
   syncTrim(false);
+  loadSuggestion(c);
 }
+
+// Sugestão de corte pelo silêncio do começo e do fim (o servidor analisa o áudio do clipe)
+const fmtS = (n) => n.toFixed(1).replace(".", ",") + " s";
+function sgCopy(sg) {
+  if (sg.none) return sg.reason === "sem áudio" ? "Este vídeo não tem fala para analisar. Corte manualmente se precisar." : "Não achei silêncio sobrando no começo nem no fim: o vídeo já está justo.";
+  const bits = [];
+  if (sg.cutStart > 0) bits.push(`${fmtS(sg.cutStart)} do começo`);
+  if (sg.cutEnd > 0) bits.push(`${fmtS(sg.cutEnd)} do fim`);
+  return `Tira ${bits.join(" e ")}, onde há só silêncio (deixei uma folga para não cortar a fala).`;
+}
+function useSuggestion(c, sg) {
+  const t = treat.trims[c.id];
+  t.start = sg.start;
+  t.end = sg.end > 0 ? sg.end : c.duration;
+  syncTrim();
+  const v = $("#pv"); v.pause(); v.currentTime = t.start;
+}
+async function loadSuggestion(c) {
+  $("#tSuggest").hidden = false;
+  $("#sgUse").disabled = true;
+  $("#sgText").textContent = "Analisando o silêncio do vídeo…";
+  let sg = treat.suggest[c.id];
+  if (!sg) {
+    try { sg = await (await fetch(`/api/clips/${c.id}/suggest-trim`, { method:"POST" })).json(); }
+    catch { sg = { none: true, reason: "erro" }; }
+    if (treat) treat.suggest[c.id] = sg;
+  }
+  if (!treat || treat.step !== "trim" || treat.list[treat.i] !== c.id) return;   // já mudou de vídeo
+  $("#sgText").textContent = sg.error ? "Não consegui analisar este vídeo." : sgCopy(sg);
+  $("#sgUse").disabled = !!(sg.none || sg.error);
+  if (!sg.none && !sg.error && $("#tAuto").checked && !c.reviewed && !treat.touched[c.id]) {
+    useSuggestion(c, sg);
+    $("#sgText").textContent = "Sugestão aplicada. " + sgCopy(sg);
+  }
+}
+$("#sgUse").onclick = () => { const c = getClip(treat.list[treat.i]), sg = treat.suggest[c.id]; if (sg && !sg.none) { useSuggestion(c, sg); treat.touched[c.id] = true; } };
+$("#sgReset").onclick = () => { const c = getClip(treat.list[treat.i]), t = treat.trims[c.id]; t.start = 0; t.end = c.duration; treat.touched[c.id] = true; syncTrim(); };
+try { $("#tAuto").checked = localStorage.getItem("treatAuto") !== "0"; } catch {}
+$("#tAuto").addEventListener("change", e => { try { localStorage.setItem("treatAuto", e.target.checked ? "1" : "0"); } catch {} });
 
 function syncTrim(fromRange) {
   const c = getClip(treat.list[treat.i]), t = treat.trims[c.id];
@@ -1332,6 +1385,7 @@ function syncTrim(fromRange) {
 function setTrim(k, val, seek) {
   const c = getClip(treat.list[treat.i]), t = treat.trims[c.id];
   t[k] = Math.min(Math.max(0, +val || 0), c.duration);
+  treat.touched[c.id] = true;
   syncTrim();
   if (seek) { const v = $("#pv"); v.pause(); v.currentTime = t[k]; }
 }

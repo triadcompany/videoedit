@@ -46,6 +46,10 @@ db.clips.forEach((c) => c.status === "processing" && (c.status = "error", c.erro
 db.refs.forEach((r) => r.status === "processing" && (r.status = "error", r.error = "interrompido"));
 db.variations.forEach((v) => delete v.prog);
 db.clips.forEach((c) => delete c.prog);
+// clipes de antes do tratamento existir: contam como já tratados (sem corte nem ganho)
+db.clips.forEach((c) => {
+  if (c.status === "ready" && c.reviewed === undefined) { c.reviewed = true; c.trim = { start: 0, end: 0 }; c.gainDb = 0; c.rendered = { start: 0, end: 0, gainDb: 0 }; }
+});
 db.variations.forEach((v) => v.cap === "processing" && (v.cap = "error", v.capError = "interrompido"));
 db.variations.forEach((v) => (v.status === "processing" || v.status === "queued") && (v.status = "error", v.error = "interrompido"));
 save(db);
@@ -586,6 +590,9 @@ app.post("/api/clips/:type", upload.array("files"), (req, res) => {
       name: Buffer.from(f.originalname, "latin1").toString("utf8"),
       file: id + ".mp4",
       status: "processing",
+      reviewed: false,
+      trim: { start: 0, end: 0 },
+      gainDb: 0,
       prog: { pct: 0, stage: "Na fila" },
     };
     db.clips.push(clip);
@@ -614,9 +621,73 @@ app.delete("/api/clips/:id", (req, res) => {
   const clip = db.clips.find((c) => c.id === req.params.id);
   if (!clip) return res.sendStatus(404);
   fs.rmSync(path.join(DIRS.clips, clip.file), { force: true });
+  if (clip.tfile) fs.rmSync(path.join(DIRS.clips, clip.tfile), { force: true });
   db.clips = db.clips.filter((c) => c !== clip);
   save(db);
   res.sendStatus(204);
+});
+
+// ---- tratamento: confirma o corte de um clipe (sem renderizar ainda) ----
+app.post("/api/clips/:id/review", async (req, res) => {
+  const c = db.clips.find((x) => x.id === req.params.id && x.status === "ready");
+  if (!c) return res.sendStatus(404);
+  const full = c.duration || (await duration(path.join(DIRS.clips, c.file)));
+  let start = Math.max(0, +req.body?.start || 0);
+  let end = +req.body?.end > 0 ? Math.min(+req.body.end, full) : 0;
+  if (end >= full - 0.05) end = 0;
+  if (start <= 0.05) start = 0;
+  if ((end || full) - start < 0.3) return res.status(400).json({ error: "O trecho ficou curto demais (mínimo 0,3 s)." });
+  c.trim = { start: +start.toFixed(2), end: +end.toFixed(2) };
+  c.reviewed = true;
+  save(db);
+  res.json(c);
+});
+app.post("/api/clips/:id/unreview", (req, res) => {
+  const c = db.clips.find((x) => x.id === req.params.id);
+  if (!c) return res.sendStatus(404);
+  c.reviewed = false;
+  save(db);
+  res.json(c);
+});
+
+// ---- tratamento: mede o volume de todos os clipes (já com o corte) e sugere o ganho para igualar ----
+app.post("/api/treat/loudness", async (_req, res) => {
+  try {
+    const clips = await enqueueP(async () => {
+      const out = {};
+      for (const c of db.clips.filter((x) => x.status === "ready")) {
+        const full = c.duration || (await duration(path.join(DIRS.clips, c.file)));
+        const t = c.trim || {};
+        const start = Math.max(0, +t.start || 0);
+        const end = +t.end > 0 ? Math.min(+t.end, full) : full;
+        const lufs = await measureLufs(path.join(DIRS.clips, c.file), start, end);
+        const silent = lufs === null || lufs < -55;
+        out[c.id] = { lufs, silent, gainDb: silent ? 0 : +Math.max(-20, Math.min(20, TARGET_LUFS - lufs)).toFixed(1) };
+      }
+      return out;
+    });
+    res.json({ target: TARGET_LUFS, clips });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ---- tratamento: aplica corte + volume (gera a versão tratada de cada clipe que mudou) ----
+app.post("/api/treat/finalize", (req, res) => {
+  const gains = req.body?.gains || {};
+  const ready = db.clips.filter((c) => c.status === "ready");
+  if (ready.some((c) => !c.reviewed)) return res.status(400).json({ error: "Ainda há vídeos sem tratamento: confirme o corte de cada um (OK, próximo)." });
+  for (const c of ready) if (gains[c.id] !== undefined) c.gainDb = Math.max(-30, Math.min(24, +gains[c.id] || 0));
+  const todo = ready.filter((c) => needsRender(c) || c.treatError);
+  for (const c of todo) {
+    c.prog = { pct: 0, stage: "Na fila" };
+    delete c.treatError;
+    enqueue(async () => {
+      try { await renderTreatedClip(c); } catch (e) { c.treatError = e.message; } finally { delete c.prog; save(db); }
+    });
+  }
+  save(db);
+  res.json({ queued: todo.length });
 });
 
 // transcreve o áudio de uma variação pronta (para o editor de legenda)
@@ -642,13 +713,60 @@ app.put("/api/variations/:id/edit", (req, res) => {
 });
 
 // início/fim de cada clipe (gancho, corpo, CTA) dentro do vídeo concatenado
+// ---------- tratamento dos clipes (corte de início/fim + volume), antes de juntar ----------
+// clip.file = original convertido (nunca muda); clip.tfile = versão tratada (se houver corte/ganho)
+const clipFile = (c) => c.tfile || c.file;
+const clipDur = (c) => c.tdur || c.duration;
+const wantedOf = (c) => ({ start: +c.trim?.start || 0, end: +c.trim?.end || 0, gainDb: +c.gainDb || 0 });
+const needsRender = (c) => c.reviewed && JSON.stringify(wantedOf(c)) !== JSON.stringify(c.rendered || { start: 0, end: 0, gainDb: 0 });
+
+async function renderTreatedClip(c) {
+  if (!db.clips.includes(c)) return;
+  const want = wantedOf(c);
+  const src = path.join(DIRS.clips, c.file);
+  const full = c.duration || (await duration(src));
+  const start = Math.max(0, want.start);
+  const end = want.end > 0 ? Math.min(want.end, full) : full;
+  const trimmed = start > 0.05 || end < full - 0.05;
+  const old = c.tfile;
+  c.prog = { pct: 0, stage: "Tratando" };
+  const setProg = (f) => { c.prog = { pct: Math.min(99, Math.round(f * 100)), stage: "Tratando" }; };
+  if (!trimmed && !want.gainDb) {
+    c.tfile = null;
+    c.tdur = null;
+  } else {
+    const name = `${c.id}.t${Date.now()}.mp4`;
+    const out = path.join(DIRS.clips, name);
+    const vol = want.gainDb ? `volume=${want.gainDb}dB,alimiter=limit=0.97` : "anull";
+    try {
+      if (!trimmed) {
+        // só volume: o vídeo é copiado sem recodificar (rápido)
+        await runFfmpegProgress(["-y", "-i", src, "-map", "0:v:0", "-map", "0:a:0", "-c:v", "copy", "-af", vol,
+          "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2", "-movflags", "+faststart", out], full, setProg);
+      } else {
+        const fg = `[0:v]trim=start=${start.toFixed(3)}:end=${end.toFixed(3)},setpts=PTS-STARTPTS[v];[0:a]atrim=start=${start.toFixed(3)}:end=${end.toFixed(3)},asetpts=PTS-STARTPTS,${vol}[a]`;
+        await runFfmpegProgress(["-y", "-i", src, "-filter_complex", fg, "-map", "[v]", "-map", "[a]",
+          "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-r", String(FPS), "-pix_fmt", "yuv420p",
+          "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2", "-movflags", "+faststart", out], end - start, setProg);
+      }
+    } catch (e) {
+      fs.rmSync(out, { force: true });
+      throw e;
+    }
+    c.tfile = name;
+    c.tdur = await duration(out);
+  }
+  if (old && old !== c.tfile) fs.rmSync(path.join(DIRS.clips, old), { force: true });
+  c.rendered = want;
+}
+
 async function variationSegments(v, parts = v.parts) {
   const segs = [];
   let pos = 0;
   for (const [i, id] of [v.hook, v.body, v.cta].entries()) {
     const c = db.clips.find((x) => x.id === id);
     if (!c) return [];
-    const full = c.duration || (await duration(path.join(DIRS.clips, c.file)));
+    const full = clipDur(c) || (await duration(path.join(DIRS.clips, clipFile(c))));
     const p = parts?.[i] || {};
     const st = Math.max(0, +p.start || 0);
     const en = +p.end > 0 ? Math.min(+p.end, full) : full;
@@ -677,14 +795,14 @@ async function assembleParts(v, parts, onFrac) {
   const args = ["-y"], chains = [];
   let total = 0;
   for (const [i, c] of clips.entries()) {
-    const full = c.duration || (await duration(path.join(DIRS.clips, c.file)));
+    const full = clipDur(c) || (await duration(path.join(DIRS.clips, clipFile(c))));
     const p = parts[i] || {};
     const start = Math.min(Math.max(0, +p.start || 0), Math.max(0, full - 0.2));
     const end = +p.end > 0 ? Math.min(+p.end, full) : full;
     if (end - start < 0.2) throw new Error(`o trecho da parte ${i + 1} ficou curto demais`);
     const gain = Math.max(-40, Math.min(24, +p.gainDb || 0));
     const vol = p.mute ? "volume=0" : gain ? `volume=${gain}dB,alimiter=limit=0.97` : "anull"; // limitador evita estourar ao aumentar
-    args.push("-i", path.join(DIRS.clips, c.file));
+    args.push("-i", path.join(DIRS.clips, clipFile(c)));
     chains.push(
       `[${i}:v]trim=start=${start.toFixed(3)}:end=${end.toFixed(3)},setpts=PTS-STARTPTS[v${i}]`,
       `[${i}:a]atrim=start=${start.toFixed(3)}:end=${end.toFixed(3)},asetpts=PTS-STARTPTS,${vol}[a${i}]`
@@ -719,11 +837,11 @@ async function measureParts(v, parts, onFrac) {
   const out = [];
   for (const [i, c] of partClips(v).entries()) {
     if (!c) throw new Error("um dos clipes originais não existe mais");
-    const full = c.duration || (await duration(path.join(DIRS.clips, c.file)));
+    const full = clipDur(c) || (await duration(path.join(DIRS.clips, clipFile(c))));
     const p = parts[i] || {};
     const start = Math.max(0, +p.start || 0);
     const end = +p.end > 0 ? Math.min(+p.end, full) : full;
-    const lufs = await measureLufs(path.join(DIRS.clips, c.file), start, end);
+    const lufs = await measureLufs(path.join(DIRS.clips, clipFile(c)), start, end);
     const silent = lufs === null || lufs < -55; // parte sem áudio: não mexe
     out.push({ lufs, silent, gainDb: silent ? 0 : +Math.max(-20, Math.min(20, TARGET_LUFS - lufs)).toFixed(1) });
     onFrac?.((i + 1) / 3);
@@ -1013,6 +1131,8 @@ app.post("/api/generate", (req, res) => {
   const quickCut = req.body?.cut?.enabled ? req.body.cut : null; // opção "cortar respiração" do topo
   const by = (t) => db.clips.filter((c) => c.type === t && c.status === "ready");
   const [hs, bs, cs] = TYPES.map(by);
+  if (db.clips.some((c) => c.status === "ready" && (!c.reviewed || needsRender(c) || c.prog)))
+    return res.status(400).json({ error: "Termine o tratamento dos vídeos (corte e equalização) antes de gerar as variações." });
   if (!hs.length || !bs.length || !cs.length)
     return res.status(400).json({ error: "Precisa de ao menos 1 gancho, 1 corpo e 1 CTA prontos." });
 
@@ -1032,7 +1152,7 @@ app.post("/api/generate", (req, res) => {
       save(db);
       try {
         const file = `v${String(Date.now()).slice(-6)}-${v.id.slice(0, 4)}.mp4`;
-        await concat([h, b, c].map((x) => path.join(DIRS.clips, x.file)), path.join(DIRS.out, file));
+        await concat([h, b, c].map((x) => path.join(DIRS.clips, clipFile(x))), path.join(DIRS.out, file));
         v.file = file;
         v.status = "ready";
       } catch (e) {

@@ -139,6 +139,15 @@
   .part.playing { border-color:var(--acc) }
   .part .vol { color:var(--txt); font-variant-numeric:tabular-nums; margin-left:6px }
   .part .eqnote { color:var(--acc); margin-top:6px }
+  .ed.m-treat .blk:not(.only-treat), .ed.m-treat #save { display:none }
+  .ed.m-treat .ed-left .hint, .ed.m-parts .ed-left .hint { display:none }
+  .ed:not(.m-treat) .only-treat { display:none }
+  .amber { color:#ffb84d !important }
+  .okc { color:var(--ok) !important }
+  .eqrow { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) 150px 70px; gap:10px; align-items:center; padding:8px 0; border-top:1px solid var(--line) }
+  .eqrow:first-child { border-top:0 }
+  .eqrow .nm { overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .dots { letter-spacing:3px }
   .pbar { height:5px; background:var(--line); border-radius:99px; overflow:hidden; margin-top:6px }
   .pbar i { display:block; height:100%; width:0; background:var(--acc); transition:width .2s }
   .up { border-style:dashed; border-color:var(--acc) }
@@ -156,6 +165,7 @@
   <nav class="nav"><a href="#criativos" data-view="main">Criativos</a><a href="#referencias" data-view="refs">Referências <span id="refcount" style="color:var(--mut)"></span></a></nav>
   <div id="headtools" style="display:flex;gap:12px;align-items:center">
     <span id="count" style="color:var(--mut)"></span>
+    <button id="treatbtn" style="display:none"></button>
     <button id="gen" disabled>Gerar variações</button>
   </div>
 </header>
@@ -220,6 +230,26 @@
           <button class="line" id="cancel">Cancelar</button>
           <button id="save">Salvar e renderizar</button>
         </div>
+      </div>
+
+      <div class="blk only-treat" id="treatClip">
+        <div class="row"><b id="tIdx"></b><span class="dots hint" id="tDots" style="margin:0"></span></div>
+        <div style="margin:8px 0 12px;font-size:16px;font-weight:600" id="tName"></div>
+        <div class="f">
+          <label class="fl">Início (s) <span class="inl"><input type="number" step="0.1" min="0" id="ts" style="width:84px"><button class="sm line" id="tHereS">aqui</button></span></label>
+          <label class="fl">Fim (s) <span class="inl"><input type="number" step="0.1" min="0" id="te" style="width:84px"><button class="sm line" id="tHereE">aqui</button></span></label>
+        </div>
+        <label class="fl" style="margin-top:12px">Arraste para escolher o início <input type="range" id="rs" min="0" step="0.05"></label>
+        <label class="fl" style="margin-top:8px">Arraste para escolher o fim <input type="range" id="re" min="0" step="0.05"></label>
+        <div class="inl" style="margin-top:12px"><button class="sm line" id="tPlay">▶ Ver só o trecho</button><span class="hint" id="tInfo" style="margin:0"></span></div>
+        <div class="hint">Tire só o que sobra no começo e no fim. Se já está bom, clique em OK. Use <b>aqui</b> para pegar o ponto exato onde o vídeo está parado.</div>
+        <div class="bar" style="margin-top:16px"><button class="line" id="tBack">← Voltar</button><button id="tOk">OK, próximo →</button></div>
+      </div>
+      <div class="blk only-treat" id="treatEq" hidden>
+        <h3>Equalizar o volume entre os vídeos</h3>
+        <div class="hint" style="margin:0 0 8px" id="eqHint"></div>
+        <div id="eqList"></div>
+        <div class="bar" style="margin-top:16px"><button class="line" id="eBack">← Voltar</button><button class="line" id="eSkip">Concluir sem equalizar</button><button id="eOk">Equalizar e concluir</button></div>
       </div>
 
       <div class="blk only-parts">
@@ -367,6 +397,9 @@ function patchList(box, items) {
 }
 const setText = (el, txt) => { if (el.textContent !== txt) el.textContent = txt; };
 
+const cFile = (c) => c.tfile || c.file;
+const cDur = (c) => c.tdur || c.duration;
+const needsRender = (c) => c.reviewed && JSON.stringify({ start:+c.trim?.start||0, end:+c.trim?.end||0, gainDb:+c.gainDb||0 }) !== JSON.stringify(c.rendered || { start:0, end:0, gainDb:0 });
 const progBox = (key, cancelId) => `<div class="prog" data-prog="${key}"><div class="pbar2"><i></i></div><div class="ptxt"><span class="pst"></span><span><b class="ppc"></b>${cancelId ? `<button class="ghost cx" data-cancel="${cancelId}" title="Cancelar esta edição">cancelar</button>` : ""}</span></div></div>`;
 
 function vTags(v) {
@@ -382,8 +415,22 @@ function vTags(v) {
 function render() {
   const ready = (t) => state.clips.filter(c => c.type===t && c.status==="ready").length;
   const total = ready("hook") * ready("body") * ready("cta");
-  setText($("#count"), total ? `${ready("hook")}×${ready("body")}×${ready("cta")} = ${total} combinações` : "");
-  $("#gen").disabled = !total;
+  const readyClips = state.clips.filter(c => c.status === "ready");
+  const pendingClips = readyClips.filter(c => !c.reviewed);
+  const dirtyClips = readyClips.filter(c => c.reviewed && needsRender(c));
+  const treating = state.clips.some(c => c.status === "processing" || c.prog);
+  const treated = readyClips.length > 0 && !pendingClips.length && !dirtyClips.length && !treating;
+  const tb = $("#treatbtn");
+  if (!readyClips.length && !treating) { tb.style.display = "none"; $("#gen").style.display = ""; }
+  else if (treated) { tb.style.display = "none"; $("#gen").style.display = ""; }
+  else {
+    $("#gen").style.display = "none"; tb.style.display = "";
+    const hasErr = readyClips.some(c => c.treatError);
+    tb.disabled = treating;
+    tb.textContent = treating ? "Preparando vídeos…" : pendingClips.length ? `Tratar vídeos (${pendingClips.length} pendente${pendingClips.length>1?"s":""})` : hasErr ? "Tentar de novo" : "Equalizar e concluir";
+  }
+  setText($("#count"), total && treated ? `${ready("hook")}×${ready("body")}×${ready("cta")} = ${total} combinações` : "");
+  $("#gen").disabled = !total || !treated;
 
   // colunas: a estrutura é criada uma vez; só os cards mudam
   const cols = $("#cols");
@@ -403,10 +450,16 @@ function render() {
       ...uploads.filter(u => u.type === t).map(u => ({ key:"up"+u.id, html:upCard(u) })),
       ...clips.map(c => ({ key:c.id, html:`
         <div class="clip">
-          ${c.status==="ready" ? `<video src="/media/clips/${c.file}#t=0.1" muted preload="metadata"></video>` : `<div style="width:48px;height:84px"></div>`}
+          ${c.status==="ready" ? `<video src="/media/clips/${cFile(c)}#t=0.1" muted preload="metadata"></video>` : `<div style="width:48px;height:84px"></div>`}
           <div class="n">${esc(c.name)}
-            ${c.status==="processing" ? progBox("c"+c.id) : `<small>${c.status==="ready"?"pronto":"erro"}</small>`}
+            ${c.status==="processing" || c.prog ? progBox("c"+c.id)
+              : c.status==="error" ? `<small>erro</small>`
+              : c.treatError ? `<small style="color:var(--err)" title="${esc(c.treatError)}">erro ao tratar</small>`
+              : !c.reviewed ? `<small class="amber">⏳ aguardando tratamento</small>`
+              : needsRender(c) ? `<small class="okc">✓ corte confirmado · falta concluir</small>`
+              : `<small class="okc">✓ tratado${c.tfile ? " · " + cDur(c).toFixed(1) + "s" : ""}</small>`}
           </div>
+          ${c.status==="ready" && c.reviewed && !c.prog ? `<button class="sm line" data-retreat="${c.id}" title="Cortar de novo / equalizar">Refazer</button>` : ""}
           <button class="ghost" data-del-clip="${c.id}">✕</button>
         </div>` })),
     ]);
@@ -487,6 +540,10 @@ function render() {
   });
   updateSel();
   applyProgress();
+  if (wantTreat && !uploads.length && !state.clips.some(c => c.status === "processing") && pendingClips.length && !$("#modal").classList.contains("open")) {
+    wantTreat = false;
+    openTreat();
+  }
 }
 
 // Progresso: atualiza só os números/barras (fora do HTML dos cards), para não recriar vídeos nem piscar
@@ -506,7 +563,7 @@ function applyProgress() {
     el.querySelector(".ppc").textContent = pct + "%";
   };
   state.variations.forEach(v => { if (v.cap === "processing") put(v.id, v.prog); });
-  state.clips.forEach(c => { if (c.status === "processing") put("c" + c.id, c.prog); });
+  state.clips.forEach(c => { if (c.status === "processing" || c.prog) put("c" + c.id, c.prog); });
 
   const proc = state.variations.filter(v => v.cap === "processing");
   proc.forEach(v => batchIds.add(v.id));
@@ -600,7 +657,7 @@ $("#apply").onclick = async () => {
 
 
 /* ---- envio com progresso: o card aparece na hora, antes do upload terminar ---- */
-let uploads = [], upSeq = 0;
+let uploads = [], upSeq = 0, wantTreat = false;
 const upCard = (u) => `
   <div class="clip up" data-up="${u.id}">
     <div class="ic">⬆</div>
@@ -640,7 +697,7 @@ function uploadFile(url, file, type) {
     u.xhr.send(fd);
   });
 }
-const send = (type, files) => Promise.all([...files].map(f => uploadFile(`/api/clips/${type}`, f, type)));
+const send = (type, files) => (wantTreat = true, Promise.all([...files].map(f => uploadFile(`/api/clips/${type}`, f, type))));
 const sendRef = (files) => Promise.all([...files].map(f => uploadFile("/api/refs", f, "ref")));
 function sendAny(d, files) { d.classList.remove("over"); return d.dataset.ref ? sendRef(files) : send(d.dataset.type, files); }
 
@@ -667,6 +724,11 @@ document.addEventListener("click", async (e) => {
   if (e.target.dataset.cancel) cancelJobs([e.target.dataset.cancel]);
   if (e.target.dataset.edit) openEditor(e.target.dataset.edit);
   if (e.target.dataset.parts) openParts(e.target.dataset.parts);
+  if (e.target.dataset.retreat) {
+    await fetch(`/api/clips/${e.target.dataset.retreat}/unreview`, { method:"POST" });
+    await refresh();
+    openTreat([e.target.dataset.retreat]);
+  }
   if (e.target.dataset.style) openStyle(e.target.dataset.style);
   if (e.target.dataset.delRef && confirm("Excluir esta referência?")) { await fetch(`/api/refs/${e.target.dataset.delRef}`, {method:"DELETE"}); refresh(); }
   if (e.target.dataset.rename) {
@@ -692,6 +754,7 @@ document.addEventListener("drop", e => {
   if (d) { e.preventDefault(); sendAny(d, e.dataTransfer.files); }
 });
 
+$("#treatbtn").onclick = () => openTreat();
 $("#gen").onclick = async () => {
   const r = await fetch("/api/generate", { method:"POST", headers:{"Content-Type":"application/json"}, body: "{}" });
   const j = await r.json();
@@ -711,7 +774,7 @@ setView();
 
 refresh();
 setInterval(() => {
-  if (state.clips.some(c=>c.status==="processing") || state.refs.some(r=>r.status==="processing") || state.variations.some(v=>["queued","processing"].includes(v.status) || v.cap==="processing")) refresh();
+  if (state.clips.some(c=>c.status==="processing"||c.prog) || state.refs.some(r=>r.status==="processing") || state.variations.some(v=>["queued","processing"].includes(v.status) || v.cap==="processing")) refresh();
 }, 1000);
 
 /* ================= EDITOR ================= */
@@ -833,6 +896,144 @@ function openDefault() {
   document.body.style.overflow = "hidden";
 }
 
+/* ================= TRATAMENTO: corte de cada vídeo (um por vez) + equalização, antes de juntar ================= */
+let treat = null, treatPlay = null;
+const TYPE_ONE = { hook:"Gancho", body:"Corpo", cta:"CTA" };
+const TYPE_ORDER = ["hook", "body", "cta"];
+const getClip = (id) => state.clips.find(c => c.id === id);
+
+function openTreat(onlyIds) {
+  const ready = state.clips.filter(c => c.status === "ready");
+  const list = (onlyIds ? ready.filter(c => onlyIds.includes(c.id)) : ready.filter(c => !c.reviewed))
+    .sort((a, b) => TYPE_ORDER.indexOf(a.type) - TYPE_ORDER.indexOf(b.type));
+  mode = "treat";
+  $("#edbox").className = "ed m-treat";
+  ed = {};
+  cur = null;
+  treat = { list: list.map(c => c.id), i: 0, step: list.length ? "trim" : "eq", gains: {}, trims: {} };
+  $("#edtitle").textContent = "Tratamento dos vídeos";
+  $("#cancel").textContent = "Fechar";
+  $("#pv").muted = false;
+  $("#ov").innerHTML = "";
+  $("#modal").classList.add("open");
+  document.body.style.overflow = "hidden";
+  showTreatStep();
+}
+
+function showTreatStep() {
+  $("#treatClip").hidden = treat.step !== "trim";
+  $("#treatEq").hidden = treat.step !== "eq";
+  if (treat.step === "trim") renderTrim(); else renderEq();
+}
+
+function renderTrim() {
+  const c = getClip(treat.list[treat.i]);
+  const dur = c.duration;
+  const t = treat.trims[c.id] ||= { start: c.trim?.start || 0, end: c.trim?.end > 0 ? c.trim.end : dur };
+  const last = treat.i === treat.list.length - 1;
+  $("#tIdx").textContent = `Vídeo ${treat.i + 1} de ${treat.list.length}`;
+  $("#tDots").textContent = treat.list.map((_, k) => k < treat.i ? "●" : k === treat.i ? "◉" : "○").join(" ");
+  $("#tName").textContent = `${TYPE_ONE[c.type]} · ${c.name}`;
+  for (const id of ["rs", "re"]) { $("#" + id).max = dur; }
+  $("#tBack").disabled = treat.i === 0;
+  $("#tOk").textContent = last ? "OK, finalizar cortes →" : "OK, próximo →";
+  const v = $("#pv");
+  v.src = `/media/clips/${c.file}`;
+  v.controls = true;
+  v.load();
+  treatPlay = null;
+  syncTrim(false);
+}
+
+function syncTrim(fromRange) {
+  const c = getClip(treat.list[treat.i]), t = treat.trims[c.id];
+  $("#ts").value = +t.start.toFixed(2); $("#te").value = +t.end.toFixed(2);
+  $("#rs").value = t.start; $("#re").value = t.end;
+  const kept = t.end - t.start;
+  const bad = kept < 0.3;
+  $("#tInfo").textContent = bad ? "⚠ o trecho precisa ter pelo menos 0,3 s" : `mantendo ${kept.toFixed(1)} s de ${c.duration.toFixed(1)} s`;
+  $("#tOk").disabled = bad;
+}
+function setTrim(k, val, seek) {
+  const c = getClip(treat.list[treat.i]), t = treat.trims[c.id];
+  t[k] = Math.min(Math.max(0, +val || 0), c.duration);
+  syncTrim();
+  if (seek) { const v = $("#pv"); v.pause(); v.currentTime = t[k]; }
+}
+$("#ts").addEventListener("input", e => setTrim("start", e.target.value, true));
+$("#te").addEventListener("input", e => setTrim("end", e.target.value, true));
+$("#rs").addEventListener("input", e => setTrim("start", e.target.value, true));
+$("#re").addEventListener("input", e => setTrim("end", e.target.value, true));
+$("#tHereS").onclick = () => setTrim("start", +$("#pv").currentTime.toFixed(2), false);
+$("#tHereE").onclick = () => setTrim("end", +$("#pv").currentTime.toFixed(2), false);
+$("#tPlay").onclick = () => {
+  const c = getClip(treat.list[treat.i]), t = treat.trims[c.id], v = $("#pv");
+  treatPlay = { end: t.end };
+  v.currentTime = t.start;
+  v.play().catch(() => {});
+};
+$("#pv").addEventListener("timeupdate", () => {
+  if (mode !== "treat" || !treatPlay) return;
+  const v = $("#pv");
+  if (v.currentTime >= treatPlay.end - 0.04) { v.pause(); treatPlay = null; }
+});
+$("#tBack").onclick = () => { if (treat.i > 0) { treat.i--; showTreatStep(); } };
+$("#tOk").onclick = async () => {
+  const c = getClip(treat.list[treat.i]), t = treat.trims[c.id];
+  $("#tOk").disabled = true;
+  const r = await fetch(`/api/clips/${c.id}/review`, { method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({ start: t.start, end: t.end >= c.duration - 0.05 ? 0 : t.end }) });
+  if (!r.ok) { alert((await r.json()).error); $("#tOk").disabled = false; return; }
+  await refresh();
+  treat.i++;
+  if (treat.i >= treat.list.length) treat.step = "eq";
+  showTreatStep();
+};
+
+async function renderEq() {
+  const ready = state.clips.filter(c => c.status === "ready").sort((a, b) => TYPE_ORDER.indexOf(a.type) - TYPE_ORDER.indexOf(b.type));
+  $("#pv").pause();
+  $("#edtitle").textContent = "Equalizar o volume";
+  $("#eqHint").textContent = "Medindo o volume de cada vídeo (já com o corte)…";
+  $("#eqList").innerHTML = "";
+  $("#eOk").disabled = $("#eSkip").disabled = true;
+  try {
+    const r = await fetch("/api/treat/loudness", { method:"POST" });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || "falha");
+    $("#eqHint").textContent = `O sistema deixa todos no mesmo volume (alvo ${j.target} LUFS, o padrão de redes sociais). Você pode ajustar cada um antes de concluir.`;
+    $("#eqList").innerHTML = ready.map(c => {
+      const m = j.clips[c.id] || { silent: true, gainDb: 0 };
+      treat.gains[c.id] = m.gainDb;
+      return `<div class="eqrow" data-id="${c.id}">
+        <div class="nm"><b>${TYPE_ONE[c.type]}</b> <span class="hint">${esc(c.name)}</span></div>
+        <div class="hint" style="margin:0">${m.silent ? "sem áudio: volume mantido" : `volume atual ${m.lufs.toFixed(1)} LUFS`}</div>
+        <input type="range" min="-30" max="24" step="0.5" value="${m.gainDb}" ${m.silent ? "disabled" : ""}>
+        <span class="vol" style="text-align:right">${fmtDb(m.gainDb)}</span></div>`;
+    }).join("");
+    $("#eOk").disabled = $("#eSkip").disabled = false;
+  } catch (err) { $("#eqHint").textContent = "Erro ao medir: " + err.message; }
+}
+$("#eqList").addEventListener("input", e => {
+  const row = e.target.closest(".eqrow");
+  if (!row) return;
+  treat.gains[row.dataset.id] = +e.target.value;
+  row.querySelector(".vol").textContent = fmtDb(+e.target.value);
+});
+$("#eBack").onclick = () => {
+  if (!treat.list.length) return;
+  treat.i = treat.list.length - 1; treat.step = "trim"; $("#edtitle").textContent = "Tratamento dos vídeos"; showTreatStep();
+};
+async function finalizeTreat(gains) {
+  $("#eOk").disabled = $("#eSkip").disabled = true;
+  const r = await fetch("/api/treat/finalize", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ gains }) });
+  if (!r.ok) { alert((await r.json()).error); $("#eOk").disabled = $("#eSkip").disabled = false; return; }
+  closeEditor();
+  await refresh();
+}
+$("#eOk").onclick = () => finalizeTreat(treat.gains);
+$("#eSkip").onclick = () => finalizeTreat(Object.fromEntries(Object.keys(treat.gains).map(k => [k, 0])));
+
 /* ================= PARTES: corte e volume de gancho, corpo e CTA ================= */
 const PART_NAMES = ["Gancho", "Corpo", "CTA"];
 let partPlay = null, audioCtx = null, gainNode = null;
@@ -840,7 +1041,7 @@ const fmtDb = (d) => (d > 0 ? "+" : d < 0 ? "−" : "") + Math.abs(d).toFixed(1)
 const gainFor = (p) => p.mute ? 0 : Math.pow(10, (p.gainDb || 0) / 20);
 
 function serverParts() {   // fim igual ao fim do clipe = 0 (sem corte)
-  return ed.parts.map((p, i) => ({ start: +(p.start || 0).toFixed(2), end: p.end >= (ed.clips[i]?.duration || 0) - 0.05 ? 0 : +p.end.toFixed(2), gainDb: p.gainDb || 0, mute: !!p.mute }));
+  return ed.parts.map((p, i) => ({ start: +(p.start || 0).toFixed(2), end: p.end >= (cDur(ed.clips[i]) || 0) - 0.05 ? 0 : +p.end.toFixed(2), gainDb: p.gainDb || 0, mute: !!p.mute }));
 }
 
 function openParts(id) {
@@ -850,7 +1051,7 @@ function openParts(id) {
   const clips = [cur.hook, cur.body, cur.cta].map(cid => state.clips.find(c => c.id === cid));
   if (clips.some(c => !c)) return alert("Um dos clipes originais desse vídeo foi excluído, então não dá para editar as partes.");
   const old = cur.parts || [0,1,2].map(() => ({}));
-  ed = { clips, notes: ["", "", ""], parts: clips.map((c, i) => ({ start: old[i].start || 0, end: old[i].end > 0 ? old[i].end : c.duration, gainDb: old[i].gainDb || 0, mute: !!old[i].mute })) };
+  ed = { clips, notes: ["", "", ""], parts: clips.map((c, i) => ({ start: old[i].start || 0, end: old[i].end > 0 ? old[i].end : cDur(c), gainDb: old[i].gainDb || 0, mute: !!old[i].mute })) };
   $("#save").textContent = "Aplicar nas partes";
   $("#edtitle").textContent = "Partes: " + cur.label;
   const v = $("#pv"); v.muted = false; v.removeAttribute("src"); $("#ov").innerHTML = "";
@@ -864,11 +1065,11 @@ function renderParts() {
     const c = ed.clips[i];
     return `
     <div class="part" data-p="${i}">
-      <div class="row"><span><b>${PART_NAMES[i]}</b> <span class="hint">${esc(c.name)} · ${c.duration.toFixed(1)}s</span></span>
+      <div class="row"><span><b>${PART_NAMES[i]}</b> <span class="hint">${esc(c.name)} · ${cDur(c).toFixed(1)}s</span></span>
         <button class="sm line" data-play="${i}">▶ Ouvir</button></div>
       <div class="f">
-        <label class="fl">Início (s) <span class="inl"><input type="number" step="0.1" min="0" max="${c.duration}" data-k="start" value="${+p.start.toFixed(2)}" style="width:80px"><button class="sm line" data-here="start">aqui</button></span></label>
-        <label class="fl">Fim (s) <span class="inl"><input type="number" step="0.1" min="0" max="${c.duration}" data-k="end" value="${+p.end.toFixed(2)}" style="width:80px"><button class="sm line" data-here="end">aqui</button></span></label>
+        <label class="fl">Início (s) <span class="inl"><input type="number" step="0.1" min="0" max="${cDur(c)}" data-k="start" value="${+p.start.toFixed(2)}" style="width:80px"><button class="sm line" data-here="start">aqui</button></span></label>
+        <label class="fl">Fim (s) <span class="inl"><input type="number" step="0.1" min="0" max="${cDur(c)}" data-k="end" value="${+p.end.toFixed(2)}" style="width:80px"><button class="sm line" data-here="end">aqui</button></span></label>
         <label class="fl">Volume <span class="vol">${fmtDb(p.gainDb)}</span><input type="range" min="-30" max="20" step="0.5" data-k="gainDb" value="${p.gainDb}"></label>
         <label class="fl inl" style="flex-direction:row;align-items:center"><input type="checkbox" data-k="mute" ${p.mute ? "checked" : ""}> mudo</label>
       </div>
@@ -898,7 +1099,7 @@ function playPart(i, chain = false) {
   const v = $("#pv"), c = ed.clips[i], p = ed.parts[i];
   partPlay = { i, chain };
   document.querySelectorAll(".part").forEach(el => el.classList.toggle("playing", +el.dataset.p === i));
-  const target = `/media/clips/${c.file}`;
+  const target = `/media/clips/${cFile(c)}`;
   const go = () => { v.currentTime = p.start || 0; gainNode.gain.value = gainFor(p); v.play().catch(() => {}); };
   if (!v.src.endsWith(target)) { v.src = target; v.addEventListener("loadedmetadata", go, { once:true }); v.load(); } else go();
 }
@@ -934,7 +1135,7 @@ $("#partsList").addEventListener("click", e => {
 });
 $("#playall").onclick = () => playPart(0, true);
 $("#resetparts").onclick = () => {
-  ed.parts = ed.clips.map(c => ({ start: 0, end: c.duration, gainDb: 0, mute: false }));
+  ed.parts = ed.clips.map(c => ({ start: 0, end: cDur(c), gainDb: 0, mute: false }));
   ed.notes = ["", "", ""];
   renderParts(); updatePartsInfo();
 };
@@ -976,7 +1177,8 @@ function openStyle(id) {
   document.body.style.overflow = "hidden";
 }
 function closeEditor() {
-  partPlay = null;
+  partPlay = null; treatPlay = null; treat = null;
+  $("#cancel").textContent = "Cancelar";
   $("#save").disabled = false;
   $("#modal").classList.remove("open");
   document.body.style.overflow = "";
@@ -1088,7 +1290,7 @@ function groupWords(words, n) {
   return g;
 }
 function paint() {
-  const ov = $("#ov"); if (!ov || !ed || mode === "parts") return;
+  const ov = $("#ov"); if (!ov || !ed || mode === "parts" || mode === "treat") return;
   const scale = $(".stage").clientWidth / 1080;
   const style = mode === "style" || mode === "default";
   const t = style ? $("#pv").currentTime % 4 : $("#pv").currentTime;

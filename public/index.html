@@ -437,6 +437,7 @@
             <div class="search"><svg class="i"><use href="#i-search"/></svg><input type="text" id="vsearch" placeholder="Buscar pelo nome do vídeo" aria-label="Buscar variações"></div>
             <span class="sp"></span>
             <button class="sm line" id="selall">Selecionar todas</button>
+            <button class="sm" id="dlsel" disabled title="Baixa as variações marcadas: um vídeo direto, ou vários em um arquivo .zip"><svg class="i"><use href="#i-download"/></svg>Baixar selecionadas</button>
             <button class="sm line" id="capall" title="Coloca legenda, no estilo padrão, em todas as variações que ainda não têm"><svg class="i"><use href="#i-captions"/></svg>Legendar todos</button>
           </div>
           <div class="grid" id="vars"></div>
@@ -729,6 +730,13 @@ function clipState(c) {
   return `<span class="chip ok">${ic("check")}Tratado${c.tfile ? " · " + cDur(c).toFixed(1) + " s" : ""}</span>`;
 }
 
+// nome do arquivo ao baixar: igual ao usado dentro do .zip (sem a extensão dos clipes e sem caracteres proibidos)
+function dlName(v) {
+  const bits = String(v.label || "").split(" + ");
+  const nm = (id, i) => (state.clips.find(c => c.id === id)?.name ?? bits[i] ?? "").replace(/\.[^.]+$/, "").replace(/[\\/:*?"<>|]/g, "_").trim().slice(0, 60) || "video";
+  return `${nm(v.hook, 0)} + ${nm(v.body, 1)} + ${nm(v.cta, 2)}`;
+}
+
 function varParts(v) {
   const bits = String(v.label || "").split(" + ");
   const nm = (id, fb) => { const c = state.clips.find(x => x.id === id); return (c ? c.name : fb || "").replace(/\.[^.]+$/, ""); };
@@ -903,7 +911,7 @@ function render() {
         ${v.status==="ready" ? `
           <button class="icon" data-parts="${v.id}" title="Partes: cortar e ajustar o volume de gancho, corpo e CTA">${ic("scissors")}</button>
           <button class="icon" data-edit="${v.id}" title="${v.capFile ? "Ajustar legenda e texto" : "Legenda e texto"}">${ic("captions")}</button>
-          <a class="icon" href="/media/output/${shown}" download="${esc(v.label)}.mp4" title="Baixar o vídeo">${ic("download")}</a>` : ""}
+          <a class="icon" href="/media/output/${shown}" download="${esc(dlName(v))}.mp4" title="Baixar o vídeo">${ic("download")}</a>` : ""}
         <span class="sp"></span>
         <button class="icon danger" data-del-var="${v.id}" title="Excluir variação">${ic("trash")}</button>
       </div>
@@ -976,6 +984,8 @@ function updateSel() {
   $("#capall").innerHTML = ic("captions") + (noCap ? `Legendar todos (${noCap})` : "Legendar todos");
   const vis = state.variations.filter(v => v.status==="ready" && vMatches(v));
   const allOn = vis.length > 0 && vis.every(v => sel.has(v.id));
+  $("#dlsel").disabled = !n;
+  $("#dlsel").innerHTML = ic("download") + (n ? `Baixar selecionadas (${n})` : "Baixar selecionadas");
   $("#selall").textContent = allOn ? "Limpar seleção" : "Selecionar todas";
   $("#selall").disabled = !vis.length;
   $("#selinfo").textContent = !n ? "Marque as variações que quer editar." : !any ? `${n} selecionada${n>1?"s":""}. Ligue uma opção abaixo.` : `${n} selecionada${n>1?"s":""}.`;
@@ -985,6 +995,22 @@ $("#selall").onclick = () => {
   const allOn = vis.length > 0 && vis.every(v => sel.has(v.id));
   vis.forEach(v => allOn ? sel.delete(v.id) : sel.add(v.id));
   render();
+};
+$("#dlsel").onclick = () => {
+  const ready = state.variations.filter(v => sel.has(v.id) && v.status === "ready" && v.cap !== "processing");
+  const skipped = sel.size - ready.length;
+  if (!ready.length) return alert("As variações marcadas ainda estão sendo editadas. Espere terminar para baixar.");
+  const a = document.createElement("a");
+  if (ready.length === 1) {   // um vídeo só: baixa direto
+    const v = ready[0];
+    a.href = `/media/output/${v.capFile || v.baseFile || v.file}`;
+    a.download = `${dlName(v)}.mp4`;
+  } else {                    // vários: um .zip (o navegador baixa em streaming, sem travar a tela)
+    a.href = `/api/variations/download?ids=${ready.map(v => v.id).join(",")}`;
+    a.download = "";
+  }
+  document.body.appendChild(a); a.click(); a.remove();
+  if (skipped) $("#selinfo").textContent = `Baixando ${ready.length}. ${skipped} em edição ${skipped > 1 ? "ficaram" : "ficou"} de fora.`;
 };
 $("#vfilter").addEventListener("click", e => {
   const b = e.target.closest("button[data-f]");

@@ -1010,6 +1010,83 @@ async function applyOps(v, { language = "pt", captions = null, cut = null, text 
   save(db);
 }
 
+// ---------- baixar várias variações em um ZIP (sem compressão: mp4 já é comprimido; transmite sem carregar tudo na memória) ----------
+const CRC_T = new Uint32Array(256).map((_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+const crcUpdate = (crc, buf) => { let c = crc ^ 0xffffffff; for (let i = 0; i < buf.length; i++) c = CRC_T[(c ^ buf[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+const dosDateTime = (d) => [((d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1)) & 0xffff, (((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate()) & 0xffff];
+
+async function streamZip(res, entries) {
+  let offset = 0, aborted = false;
+  res.on("close", () => { aborted = true; });
+  const write = async (buf) => {
+    if (aborted) throw new Error("download cancelado");
+    offset += buf.length;
+    if (!res.write(buf)) await new Promise((r) => res.once("drain", r));
+  };
+  const central = [];
+  for (const e of entries) {
+    const name = Buffer.from(e.name, "utf8");
+    const [tm, dt] = dosDateTime(e.mtime);
+    const lh = Buffer.alloc(30);
+    lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(20, 4); lh.writeUInt16LE(0x0808, 6); // bit 3: tamanhos no fim; bit 11: nome em UTF-8
+    lh.writeUInt16LE(0, 8); lh.writeUInt16LE(tm, 10); lh.writeUInt16LE(dt, 12);
+    lh.writeUInt32LE(0, 14); lh.writeUInt32LE(0, 18); lh.writeUInt32LE(0, 22);
+    lh.writeUInt16LE(name.length, 26); lh.writeUInt16LE(0, 28);
+    const start = offset;
+    await write(lh); await write(name);
+    let crc = 0, size = 0;
+    for await (const chunk of fs.createReadStream(e.path)) { crc = crcUpdate(crc, chunk); size += chunk.length; await write(chunk); }
+    const dd = Buffer.alloc(16);
+    dd.writeUInt32LE(0x08074b50, 0); dd.writeUInt32LE(crc, 4); dd.writeUInt32LE(size, 8); dd.writeUInt32LE(size, 12);
+    await write(dd);
+    central.push({ name, tm, dt, crc, size, start });
+  }
+  const cdStart = offset;
+  for (const c of central) {
+    const h = Buffer.alloc(46);
+    h.writeUInt32LE(0x02014b50, 0); h.writeUInt16LE(20, 4); h.writeUInt16LE(20, 6); h.writeUInt16LE(0x0808, 8); h.writeUInt16LE(0, 10);
+    h.writeUInt16LE(c.tm, 12); h.writeUInt16LE(c.dt, 14); h.writeUInt32LE(c.crc, 16); h.writeUInt32LE(c.size, 20); h.writeUInt32LE(c.size, 24);
+    h.writeUInt16LE(c.name.length, 28); h.writeUInt32LE(c.start, 42);
+    await write(h); await write(c.name);
+  }
+  const cdSize = offset - cdStart;
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(central.length, 8); end.writeUInt16LE(central.length, 10);
+  end.writeUInt32LE(cdSize, 12); end.writeUInt32LE(cdStart, 16);
+  await write(end);
+  res.end();
+}
+
+// GET /api/variations/download?ids=a,b,c  ->  .zip com as variações (a versão final de cada uma: legendada/cortada/original)
+app.get("/api/variations/download", async (req, res) => {
+  const ids = String(req.query.ids || "").split(",").filter(Boolean);
+  const vs = ids.map((id) => db.variations.find((v) => v.id === id)).filter((v) => v && v.status === "ready" && v.cap !== "processing");
+  if (!vs.length) return res.status(400).send("Nenhuma variação pronta para baixar.");
+  const safe = (t) => String(t || "").replace(/\.[^.]+$/, "").replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").trim().slice(0, 60) || "video";
+  const used = new Map();
+  const entries = [];
+  let total = 0;
+  for (const v of vs) {
+    const file = path.join(DIRS.out, v.capFile || v.baseFile || v.file);
+    if (!fs.existsSync(file)) continue;
+    const bits = String(v.label || "").split(" + ");
+    const nm = (id, i) => safe(db.clips.find((c) => c.id === id)?.name ?? bits[i]);
+    let base = `${nm(v.hook, 0)} + ${nm(v.body, 1)} + ${nm(v.cta, 2)}`;
+    const n = (used.get(base) || 0) + 1;
+    used.set(base, n);
+    if (n > 1) base += ` (${n})`;
+    const st = fs.statSync(file);
+    total += st.size;
+    entries.push({ name: base + ".mp4", path: file, mtime: st.mtime, size: st.size });
+  }
+  if (!entries.length) return res.status(404).send("Arquivos não encontrados.");
+  if (total > 3.8e9) return res.status(413).send("Os vídeos passam de 3,8 GB: selecione menos vídeos por vez.");
+  const len = entries.reduce((a, e) => a + 30 + Buffer.byteLength(e.name) + e.size + 16 + 46 + Buffer.byteLength(e.name), 22);
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, "").replace("T", "-");
+  res.set({ "Content-Type": "application/zip", "Content-Length": String(len), "Content-Disposition": `attachment; filename="variacoes-${stamp}.zip"` });
+  try { await streamZip(res, entries); } catch { res.destroy(); }
+});
+
 // Cancela edições na fila ou em andamento. ids: lista de ids, ou "all".
 app.post("/api/variations/cancel", (req, res) => {
   const ids = req.body?.ids === "all" ? [...jobs.keys()] : Array.isArray(req.body?.ids) ? req.body.ids : [];

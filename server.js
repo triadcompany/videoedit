@@ -665,6 +665,9 @@ app.post("/api/clips/:id/review", async (req, res) => {
   if (end >= full - 0.05) end = 0;
   if (start <= 0.05) start = 0;
   if ((end || full) - start < 0.3) return res.status(400).json({ error: "O trecho ficou curto demais (mínimo 0,3 s)." });
+  const speed = Math.min(3, Math.max(0.5, +req.body?.speed || 1));
+  if (((end || full) - start) / speed < 0.2) return res.status(400).json({ error: "Com essa velocidade o vídeo ficaria curto demais." });
+  c.speed = +speed.toFixed(2);
   c.trim = { start: +start.toFixed(2), end: +end.toFixed(2) };
   c.reviewed = true;
   save(db);
@@ -745,8 +748,11 @@ app.put("/api/variations/:id/edit", (req, res) => {
 // clip.file = original convertido (nunca muda); clip.tfile = versão tratada (se houver corte/ganho)
 const clipFile = (c) => c.tfile || c.file;
 const clipDur = (c) => c.tdur || c.duration;
-const wantedOf = (c) => ({ start: +c.trim?.start || 0, end: +c.trim?.end || 0, gainDb: +c.gainDb || 0 });
-const needsRender = (c) => c.reviewed && JSON.stringify(wantedOf(c)) !== JSON.stringify(c.rendered || { start: 0, end: 0, gainDb: 0 });
+const wantedOf = (c) => ({ start: +c.trim?.start || 0, end: +c.trim?.end || 0, gainDb: +c.gainDb || 0, speed: +c.speed || 1 });
+const normW = (w) => ({ start: +w?.start || 0, end: +w?.end || 0, gainDb: +w?.gainDb || 0, speed: +w?.speed || 1 });
+const needsRender = (c) => c.reviewed && JSON.stringify(wantedOf(c)) !== JSON.stringify(normW(c.rendered));
+// atempo aceita 0,5 a 2 por etapa: encadeia para velocidades maiores/menores (o tom da voz é preservado)
+const atempoChain = (x) => { const p = []; while (x > 2) { p.push("atempo=2"); x /= 2; } while (x < 0.5) { p.push("atempo=0.5"); x /= 0.5; } p.push(`atempo=${x.toFixed(4)}`); return p.join(","); };
 
 async function renderTreatedClip(c) {
   if (!db.clips.includes(c)) return;
@@ -756,10 +762,11 @@ async function renderTreatedClip(c) {
   const start = Math.max(0, want.start);
   const end = want.end > 0 ? Math.min(want.end, full) : full;
   const trimmed = start > 0.05 || end < full - 0.05;
+  const speed = want.speed;
   const old = c.tfile;
   c.prog = { pct: 0, stage: "Tratando" };
   const setProg = (f) => { c.prog = { pct: Math.min(99, Math.round(f * 100)), stage: "Tratando" }; };
-  if (!trimmed && !want.gainDb) {
+  if (!trimmed && !want.gainDb && speed === 1) {
     c.tfile = null;
     c.tdur = null;
   } else {
@@ -767,15 +774,18 @@ async function renderTreatedClip(c) {
     const out = path.join(DIRS.clips, name);
     const vol = want.gainDb ? `volume=${want.gainDb}dB,alimiter=limit=0.97` : "anull";
     try {
-      if (!trimmed) {
+      if (!trimmed && speed === 1) {
         // só volume: o vídeo é copiado sem recodificar (rápido)
         await runFfmpegProgress(["-y", "-i", src, "-map", "0:v:0", "-map", "0:a:0", "-c:v", "copy", "-af", vol,
           "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2", "-movflags", "+faststart", out], full, setProg);
       } else {
-        const fg = `[0:v]trim=start=${start.toFixed(3)}:end=${end.toFixed(3)},setpts=PTS-STARTPTS[v];[0:a]atrim=start=${start.toFixed(3)}:end=${end.toFixed(3)},asetpts=PTS-STARTPTS,${vol}[a]`;
+        // corta, muda a velocidade (imagem e som juntos) e ajusta o volume
+        const sv = speed !== 1 ? `,setpts=PTS/${speed}` : "";
+        const sa = speed !== 1 ? `,${atempoChain(speed)}` : "";
+        const fg = `[0:v]trim=start=${start.toFixed(3)}:end=${end.toFixed(3)},setpts=PTS-STARTPTS${sv}[v];[0:a]atrim=start=${start.toFixed(3)}:end=${end.toFixed(3)},asetpts=PTS-STARTPTS${sa},${vol}[a]`;
         await runFfmpegProgress(["-y", "-i", src, "-filter_complex", fg, "-map", "[v]", "-map", "[a]",
           "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-r", String(FPS), "-pix_fmt", "yuv420p",
-          "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2", "-movflags", "+faststart", out], end - start, setProg);
+          "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2", "-movflags", "+faststart", out], (end - start) / speed, setProg);
       }
     } catch (e) {
       fs.rmSync(out, { force: true });

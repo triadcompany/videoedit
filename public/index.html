@@ -292,6 +292,7 @@
   .sg-sides label:has(input:disabled) { color:var(--text-3); cursor:default }
   .sg-cfg { display:grid; grid-template-columns:1fr 1fr; gap:12px; flex-basis:100% }
   .suggest .switch { flex-basis:100%; font-weight:500; font-size:13px; color:var(--text-2) }
+  .speed { margin-top:14px; padding-top:14px; border-top:1px solid var(--line) }
   .dots { display:inline-flex; gap:6px; align-items:center }
   .dot { width:9px; height:9px; border-radius:50%; border:1.5px solid var(--line-2) }
   .dot.done { background:var(--ok); border-color:var(--ok) }
@@ -547,6 +548,15 @@
           </div>
           <label class="switch"><input type="checkbox" id="tAuto" checked><span class="track"></span>Já abrir cada vídeo com a sugestão aplicada</label>
         </div>
+        <div class="speed" id="tSpeed">
+          <div class="row"><b>Velocidade</b><span class="hint" style="margin:0">A prévia já toca na velocidade escolhida</span></div>
+          <div class="inl" style="margin-top:8px">
+            <div class="seg" id="spSeg" role="group" aria-label="Velocidade do vídeo">
+              <button data-sp="0.5">0,5×</button><button data-sp="0.75">0,75×</button><button data-sp="1" class="on">1×</button><button data-sp="1.25">1,25×</button><button data-sp="1.5">1,5×</button><button data-sp="2">2×</button><button data-sp="3">3×</button>
+            </div>
+            <label class="inl" style="color:var(--text-2)">Outra <input type="number" id="spNum" min="0.5" max="3" step="0.05" value="1" style="width:76px"> ×</label>
+          </div>
+        </div>
         <div class="inl" style="margin-top:12px"><button class="sm line" id="tPlay"><svg class="i fill"><use href="#i-play"/></svg>Ver só o trecho</button><span class="hint" id="tInfo" style="margin:0"></span></div>
         <div class="hint">Tire só o que sobra no começo e no fim. Se já está bom, clique em OK. Use o botão de alvo para marcar o ponto exato onde o vídeo está parado.</div>
         <div class="bar" style="margin-top:16px"><button class="line" id="tBack"><svg class="i "><use href="#i-arrow-left"/></svg>Voltar</button><button id="tOk">OK, próximo<svg class="i "><use href="#i-arrow-right"/></svg></button></div>
@@ -708,7 +718,9 @@ const setText = (el, txt) => { if (el.textContent !== txt) el.textContent = txt;
 
 const cFile = (c) => c.tfile || c.file;
 const cDur = (c) => c.tdur || c.duration;
-const needsRender = (c) => c.reviewed && JSON.stringify({ start:+c.trim?.start||0, end:+c.trim?.end||0, gainDb:+c.gainDb||0 }) !== JSON.stringify(c.rendered || { start:0, end:0, gainDb:0 });
+const normW = (w) => ({ start:+w?.start||0, end:+w?.end||0, gainDb:+w?.gainDb||0, speed:+w?.speed||1 });
+const needsRender = (c) => c.reviewed && JSON.stringify(normW({ ...c.trim, gainDb:c.gainDb, speed:c.speed })) !== JSON.stringify(normW(c.rendered));
+const fmtX = (n) => String(+(+n).toFixed(2)).replace(".", ",") + "×";
 const progBox = (key, cancelId) => `<div class="prog" data-prog="${key}"><div class="pbar2"><i></i></div><div class="ptxt"><span class="pst"></span><span><b class="ppc"></b>${cancelId ? `<button class="ghost cx" data-cancel="${cancelId}" title="Cancelar esta edição">cancelar</button>` : ""}</span></div></div>`;
 
 function vTags(v) {
@@ -727,7 +739,7 @@ function clipState(c) {
   if (c.treatError) return `<span class="chip err" title="${esc(c.treatError)}">${ic("alert")}Erro ao tratar</span>`;
   if (!c.reviewed) return `<span class="chip warn">${ic("clock")}Aguardando tratamento</span>`;
   if (needsRender(c)) return `<span class="chip acc">${ic("check")}Corte confirmado, falta concluir</span>`;
-  return `<span class="chip ok">${ic("check")}Tratado${c.tfile ? " · " + cDur(c).toFixed(1) + " s" : ""}</span>`;
+  return `<span class="chip ok">${ic("check")}Tratado${c.tfile ? " · " + cDur(c).toFixed(1) + " s" : ""}${c.speed && c.speed !== 1 ? " · " + fmtX(c.speed) : ""}</span>`;
 }
 
 // nome do arquivo ao baixar: igual ao usado dentro do .zip (sem a extensão dos clipes e sem caracteres proibidos)
@@ -1356,7 +1368,7 @@ function showTreatStep() {
 function renderTrim() {
   const c = getClip(treat.list[treat.i]);
   const dur = c.duration;
-  const t = treat.trims[c.id] ||= { start: c.trim?.start || 0, end: c.trim?.end > 0 ? c.trim.end : dur };
+  const t = treat.trims[c.id] ||= { start: c.trim?.start || 0, end: c.trim?.end > 0 ? c.trim.end : dur, speed: c.speed || 1 };
   const last = treat.i === treat.list.length - 1;
   $("#tIdx").textContent = `Vídeo ${treat.i + 1} de ${treat.list.length}`;
   $("#tDots").innerHTML = treat.list.map((_, k) => `<span class="dot ${k < treat.i ? "done" : k === treat.i ? "cur" : ""}"></span>`).join("");
@@ -1369,7 +1381,7 @@ function renderTrim() {
   v.controls = true;
   v.load();
   treatPlay = null;
-  syncTrim(false);
+  syncSpeed();
   loadSuggestion(c);
 }
 
@@ -1469,13 +1481,34 @@ $("#sgNoise").addEventListener("change", e => { sgCfg.noise = e.target.value; sa
 try { $("#tAuto").checked = localStorage.getItem("treatAuto") !== "0"; } catch {}
 $("#tAuto").addEventListener("change", e => { try { localStorage.setItem("treatAuto", e.target.checked ? "1" : "0"); } catch {} });
 
+// Velocidade do clipe (imagem e som juntos; o tom da voz é preservado). A prévia toca já na velocidade escolhida.
+function syncSpeed() {
+  const c = getClip(treat.list[treat.i]), t = treat.trims[c.id], sp = t.speed || 1;
+  document.querySelectorAll("#spSeg button").forEach(b => b.classList.toggle("on", +b.dataset.sp === sp));
+  $("#spNum").value = sp;
+  $("#pv").playbackRate = sp;
+  syncTrim();
+}
+$("#spSeg").addEventListener("click", e => {
+  const b = e.target.closest("button[data-sp]");
+  if (!b || !treat) return;
+  treat.trims[treat.list[treat.i]].speed = +b.dataset.sp;
+  syncSpeed();
+});
+$("#spNum").addEventListener("change", e => {
+  if (!treat) return;
+  treat.trims[treat.list[treat.i]].speed = Math.min(3, Math.max(0.5, +(+e.target.value || 1).toFixed(2)));
+  syncSpeed();
+});
+
 function syncTrim(fromRange) {
   const c = getClip(treat.list[treat.i]), t = treat.trims[c.id];
   $("#ts").value = +t.start.toFixed(2); $("#te").value = +t.end.toFixed(2);
   $("#rs").value = t.start; $("#re").value = t.end;
-  const kept = t.end - t.start;
-  const bad = kept < 0.3;
-  $("#tInfo").textContent = bad ? "O trecho precisa ter pelo menos 0,3 s" : `mantendo ${kept.toFixed(1)} s de ${c.duration.toFixed(1)} s`;
+  const kept = t.end - t.start, sp = t.speed || 1;
+  const bad = kept < 0.3 || kept / sp < 0.2;
+  $("#tInfo").textContent = bad ? (kept < 0.3 ? "O trecho precisa ter pelo menos 0,3 s" : "Com essa velocidade o vídeo ficaria curto demais")
+    : `mantendo ${kept.toFixed(1)} s de ${c.duration.toFixed(1)} s` + (sp !== 1 ? ` · fica com ${(kept / sp).toFixed(1)} s a ${fmtX(sp)}` : "");
   $("#tInfo").classList.toggle("is-warn", bad);
   $("#tOk").disabled = bad;
 }
@@ -1508,7 +1541,7 @@ $("#tOk").onclick = async () => {
   const c = getClip(treat.list[treat.i]), t = treat.trims[c.id];
   $("#tOk").disabled = true;
   const r = await fetch(`/api/clips/${c.id}/review`, { method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({ start: t.start, end: t.end >= c.duration - 0.05 ? 0 : t.end }) });
+    body: JSON.stringify({ start: t.start, end: t.end >= c.duration - 0.05 ? 0 : t.end, speed: t.speed || 1 }) });
   if (!r.ok) { alert((await r.json()).error); $("#tOk").disabled = false; return; }
   await refresh();
   treat.i++;
@@ -1519,6 +1552,7 @@ $("#tOk").onclick = async () => {
 async function renderEq() {
   const ready = state.clips.filter(c => c.status === "ready").sort((a, b) => TYPE_ORDER.indexOf(a.type) - TYPE_ORDER.indexOf(b.type));
   $("#pv").pause();
+  $("#pv").playbackRate = 1;
   $("#edtitle").textContent = "Equalizar o volume";
   $("#eqHint").textContent = "Medindo o volume de cada vídeo (já com o corte)…";
   $("#eqList").innerHTML = "";
@@ -1704,6 +1738,7 @@ function openStyle(id) {
   document.body.style.overflow = "hidden";
 }
 function closeEditor() {
+  $("#pv").playbackRate = 1;
   partPlay = null; treatPlay = null; treat = null;
   $("#cancel").textContent = "Cancelar";
   $("#save").disabled = false;

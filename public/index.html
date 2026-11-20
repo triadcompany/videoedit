@@ -3,8 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
 <title>Variações de Criativo</title>
 <style>
+  /* Fontes das legendas (também usadas na prévia). A interface usa a fonte do sistema. */
   @font-face { font-family:"Poppins Light"; src:url(/fonts/Poppins-Light.ttf) }
   @font-face { font-family:"Poppins Regular"; src:url(/fonts/Poppins-Regular.ttf) }
   @font-face { font-family:"Poppins Medium"; src:url(/fonts/Poppins-Medium.ttf) }
@@ -20,69 +22,270 @@
   @font-face { font-family:"Bebas Neue"; src:url(/fonts/BebasNeue-Regular.ttf) }
   @font-face { font-family:"Archivo Black"; src:url(/fonts/ArchivoBlack-Regular.ttf) }
   @font-face { font-family:"Bangers"; src:url(/fonts/Bangers-Regular.ttf) }
-  :root { --bg:#0f1115; --card:#181b22; --line:#2a2f3a; --txt:#e8eaf0; --mut:#8b92a3; --acc:#6d5efc; --ok:#2ecc71; --err:#ff5c5c; }
-  * { box-sizing:border-box }
-  body { margin:0; background:var(--bg); color:var(--txt); font:15px/1.4 system-ui,sans-serif; }
-  header { padding:20px 28px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap }
-  h1 { font-size:18px; margin:0 }
-  main { padding:24px 28px; max-width:1300px; margin:0 auto }
-  .cols { display:grid; grid-template-columns:repeat(3,1fr); gap:16px }
-  @media (max-width:800px){ .cols{grid-template-columns:1fr} }
-  .col { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px }
-  .col h2 { margin:0 0 10px; font-size:14px; text-transform:uppercase; letter-spacing:.06em; color:var(--mut); display:flex; justify-content:space-between }
-  .drop { border:2px dashed var(--line); border-radius:10px; padding:18px; text-align:center; color:var(--mut); cursor:pointer; transition:.15s }
-  .drop.over, .drop:hover { border-color:var(--acc); color:var(--txt) }
-  .clip { display:flex; gap:10px; align-items:center; margin-top:10px; padding:8px; border:1px solid var(--line); border-radius:8px }
-  .clip video { width:48px; height:84px; object-fit:cover; border-radius:6px; background:#000; flex:none }
-  .clip .n { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
-  .clip small { color:var(--mut); display:block }
-  .clip small.ed { color:var(--acc) }
-  button { background:var(--acc); color:#fff; border:0; border-radius:8px; padding:10px 16px; font:inherit; font-weight:600; cursor:pointer }
-  button:disabled { opacity:.4; cursor:not-allowed }
-  button.sm { padding:6px 10px; font-size:13px }
-  button.line { background:transparent; border:1px solid var(--line); color:var(--txt) }
-  button.line:hover { border-color:var(--acc) }
-  button.ghost { background:transparent; color:var(--mut); padding:4px 8px; font-weight:400 }
-  button.ghost:hover { color:var(--err) }
-  section { margin-top:32px }
-  section > h2 { font-size:16px; margin:0 0 14px }
-  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:14px }
-  .v { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px }
-  .v video { width:100%; aspect-ratio:9/16; background:#000; border-radius:8px }
-  .v .l { font-size:12px; color:var(--mut); margin:8px 0; min-height:32px; word-break:break-word }
-  .row { display:flex; justify-content:space-between; align-items:center }
-  .badge { font-size:12px; padding:2px 8px; border-radius:99px; background:var(--line) }
-  .badge.ready{ color:var(--ok) } .badge.error{ color:var(--err) }
-  a.dl { color:var(--acc); text-decoration:none; font-weight:600; font-size:13px }
-  .ph { aspect-ratio:9/16; display:grid; place-items:center; background:#0b0d11; border-radius:8px; color:var(--mut); font-size:13px; text-align:center; padding:8px }
 
-  /* ---------- editor ---------- */
-  #modal { position:fixed; inset:0; background:rgba(0,0,0,.72); display:none; z-index:10; overflow:auto; padding:20px }
+  /* ---------- base ---------- */
+  :root {
+    color-scheme: dark;
+    --bg:#0d0f13; --panel:#13161b; --surface:#181c22; --raised:#1f242b; --field:#0f1216;
+    --line:#272d36; --line-2:#363e4a;
+    --text:#eceff4; --text-2:#aab2bf; --text-3:#8790a0;
+    --accent:#6b5bf5; --accent-hi:#a59bff; --accent-lo:#5a4be0;
+    --accent-soft:rgba(107,91,245,.16); --accent-line:rgba(135,120,255,.5);
+    --ok:#4ccb94; --ok-soft:rgba(76,203,148,.13);
+    --warn:#f2b552; --warn-soft:rgba(242,181,82,.13);
+    --err:#ff7a7a; --err-soft:rgba(255,122,122,.13);
+    --r-card:14px; --r-ctl:9px;
+    --shadow:0 2px 4px rgba(0,0,0,.35), 0 14px 36px rgba(0,0,0,.4);
+    --font:ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing:border-box }
+  html { -webkit-text-size-adjust:100% }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 var(--font); -webkit-font-smoothing:antialiased }
+  ::selection { background:rgba(135,120,255,.45); color:#fff }
+  :focus-visible { outline:2px solid var(--accent-hi); outline-offset:2px }
+  input, select, textarea, button { font:inherit; color:inherit }
+  input, select, textarea { caret-color:var(--accent-hi) }
+  h1, h2, h3, h4, p { margin:0 }
+  [hidden] { display:none !important }
+  .i { width:1.15em; height:1.15em; flex:none; pointer-events:none; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round }
+  .i.fill { fill:currentColor; stroke:none }
+  .muted { color:var(--text-3) }
+  .num-t { font-variant-numeric:tabular-nums }
+
+  /* ---------- botões (primário = botão simples; secundário = .line; discreto = .ghost) ---------- */
+  button { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:36px; padding:0 14px; border:1px solid transparent; border-radius:var(--r-ctl); background:var(--accent); color:#fff; font-weight:600; cursor:pointer; white-space:nowrap; transition:background-color .15s, border-color .15s, color .15s }
+  button:hover:not(:disabled) { background:var(--accent-lo) }
+  button:disabled { opacity:.42; cursor:not-allowed }
+  button.sm { min-height:30px; padding:0 11px; font-size:13px; border-radius:8px }
+  button.lg { min-height:46px; padding:0 22px; font-size:15px; border-radius:11px }
+  button.block { width:100% }
+  button.line { background:transparent; border-color:var(--line-2); color:var(--text) }
+  button.line:hover:not(:disabled) { background:var(--raised); border-color:var(--text-3) }
+  button.ghost { background:transparent; color:var(--text-2); padding:0 8px; font-weight:500 }
+  button.ghost:hover:not(:disabled) { background:var(--raised); color:var(--text) }
+  button.icon, a.icon { display:inline-grid; place-items:center; width:32px; height:32px; min-height:0; padding:0; border-radius:8px; background:transparent; color:var(--text-2); border:0; text-decoration:none; cursor:pointer; transition:background-color .15s, color .15s }
+  button.icon:hover:not(:disabled), a.icon:hover { background:var(--raised); color:var(--text) }
+  button.icon.danger:hover:not(:disabled) { color:var(--err); background:var(--err-soft) }
+  button.icon .i, a.icon .i { width:17px; height:17px }
+
+  input[type=text], input[type=number], select, textarea { background:var(--field); border:1px solid var(--line-2); border-radius:8px; padding:0 10px; min-height:34px; width:100%; transition:border-color .15s }
+  textarea { padding:8px 10px; resize:vertical }
+  input[type=text]:hover, input[type=number]:hover, select:hover, textarea:hover { border-color:var(--text-3) }
+  input[type=number] { font-variant-numeric:tabular-nums }
+  select { appearance:none; padding-right:30px; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238790a0' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9.5l6 6 6-6'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 10px center }
+  input[type=color] { padding:2px; height:34px; min-width:44px; background:var(--field); border:1px solid var(--line-2); border-radius:8px; width:auto }
+  input[type=checkbox], input[type=radio], input[type=range] { accent-color:var(--accent); width:auto }
+  input[type=range] { width:100%; padding:0 }
+
+  /* ---------- barra superior ---------- */
+  .topbar { position:sticky; top:0; z-index:30; display:flex; align-items:center; gap:18px; height:56px; padding:0 24px; background:var(--bg); border-bottom:1px solid var(--line) }
+  .brand { display:flex; align-items:center; gap:10px; font-size:15px; font-weight:600; letter-spacing:-.01em }
+  .mark { display:grid; place-items:center; width:30px; height:30px; border-radius:9px; background:var(--accent-lo); color:#fff }
+  .mark .i { width:17px; height:17px }
+  .nav { display:flex; gap:2px }
+  .nav a { display:inline-flex; align-items:center; gap:6px; padding:7px 12px; border-radius:8px; color:var(--text-2); text-decoration:none; font-weight:500; transition:background-color .15s, color .15s }
+  .nav a:hover { background:var(--raised); color:var(--text) }
+  .nav a.on { background:var(--raised); color:var(--text) }
+  .nav .count { color:var(--text-3); font-variant-numeric:tabular-nums }
+  .banner { display:flex; align-items:flex-start; gap:12px; padding:12px 24px; background:var(--warn-soft); border-bottom:1px solid rgba(242,181,82,.35); color:#ffd89a; font-size:13.5px }
+  .banner .i { margin-top:2px; color:var(--warn) }
+  .page { max-width:1360px; margin:0 auto; padding:24px 24px 96px }
+
+  /* ---------- fluxo: passos + próximo passo ---------- */
+  .steps { list-style:none; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:0 0 14px; padding:0 }
+  .step { display:flex; align-items:center; gap:12px; min-width:0; padding:10px 12px; border:1px solid var(--line); border-radius:12px; background:var(--panel); color:var(--text-3); cursor:pointer; transition:border-color .15s, background-color .15s }
+  .step:hover { border-color:var(--line-2) }
+  .step .num { flex:none; display:grid; place-items:center; width:28px; height:28px; border-radius:50%; border:1.5px solid var(--line-2); font-size:13px; font-weight:600; font-variant-numeric:tabular-nums }
+  .step .num .i { width:15px; height:15px; stroke-width:2.4 }
+  .step .t { min-width:0 }
+  .step .t b { display:block; font-size:13.5px; font-weight:600; color:inherit }
+  .step .t span { display:block; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+  .step.cur { border-color:var(--accent-line); background:var(--surface); color:var(--text) }
+  .step.cur .num { background:var(--accent-lo); border-color:var(--accent-lo); color:#fff }
+  .step.done { color:var(--text-2) }
+  .step.done .num { background:var(--ok-soft); border-color:transparent; color:var(--ok) }
+  .next { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:20px 24px; margin-bottom:8px; border:1px solid var(--accent-line); border-radius:var(--r-card); background:var(--surface) }
+  .next h2 { font-size:24px; line-height:1.25; font-weight:600; letter-spacing:-.015em; margin-bottom:4px; text-wrap:balance }
+  .next p { color:var(--text-2); max-width:64ch }
+  .next-count { display:block; margin-top:6px; color:var(--text-3); font-variant-numeric:tabular-nums }
+  .next-act { display:flex; gap:10px; flex:none }
+
+  /* ---------- seções ---------- */
+  .sec, .next { scroll-margin-top:72px }
+  .sec { margin-top:36px }
+  .sec-head { display:flex; align-items:baseline; gap:6px 14px; flex-wrap:wrap; margin-bottom:14px }
+  .sec-head h2 { font-size:21px; font-weight:600; letter-spacing:-.01em }
+  .sec-head h2 .count { color:var(--text-3); font-weight:500; font-variant-numeric:tabular-nums }
+  .sec-head p { color:var(--text-3) }
+
+  /* ---------- colunas de vídeos ---------- */
+  .lanes { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px }
+  .lane { display:flex; flex-direction:column; gap:12px; padding:16px; border:1px solid var(--line); border-radius:var(--r-card); background:var(--surface); min-width:0 }
+  .lane-head { display:flex; align-items:baseline; justify-content:space-between; gap:10px }
+  .lane-head h3 { font-size:16px; font-weight:600 }
+  .lane-head p { font-size:12.5px; color:var(--text-3) }
+  .lane-head .cnt { min-width:24px; padding:1px 8px; border-radius:99px; background:var(--raised); color:var(--text-2); font-size:12px; font-weight:600; text-align:center; font-variant-numeric:tabular-nums }
+  .drop { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; padding:16px 12px; border:1.5px dashed var(--line-2); border-radius:11px; color:var(--text-2); text-align:center; cursor:pointer; transition:border-color .15s, background-color .15s, color .15s }
+  .drop .i { width:22px; height:22px; color:var(--accent-hi); margin-bottom:2px }
+  .drop b { font-weight:600; color:var(--text) }
+  .drop span { font-size:12.5px; color:var(--text-3) }
+  .drop:hover, .drop.over { border-color:var(--accent-hi); background:var(--accent-soft) }
+  .drop.tall { min-height:190px }
+  .clip { display:grid; grid-template-columns:40px minmax(0,1fr) auto; gap:12px; align-items:center; padding:10px 0; border-top:1px solid var(--line) }
+  .lane .body > .clip:first-child { border-top:0; padding-top:2px }
+  .clip video, .clip .thumb { width:40px; height:72px; border-radius:6px; object-fit:cover; background:#000 }
+  .clip .n { min-width:0; display:flex; flex-direction:column; gap:5px }
+  .clip .n .chip, .clip .n .prog { align-self:flex-start }
+  .clip .n .prog { align-self:stretch }
+  .clip .nm { font-weight:600; font-size:13.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+  .clip .ops { display:flex; gap:2px }
+  .clip.up .ic { display:grid; place-items:center; width:40px; height:72px; border-radius:6px; background:var(--raised); color:var(--accent-hi) }
+  .clip.up .ic .i { width:18px; height:18px }
+  .pbar { height:5px; background:var(--line); border-radius:99px; overflow:hidden }
+  .pbar i { display:block; height:100%; width:100%; background:var(--accent-hi); transform:scaleX(0); transform-origin:left; transition:transform .2s }
+
+  /* ---------- estados em chip ---------- */
+  .chip { display:inline-flex; align-items:center; gap:5px; min-height:22px; padding:0 9px; border-radius:99px; background:var(--raised); color:var(--text-2); font-size:12px; font-weight:500; white-space:nowrap; max-width:100% }
+  .chip .i { width:13px; height:13px; stroke-width:2.2 }
+  .chip i.sw { width:10px; height:10px; border-radius:50%; border:1px solid rgba(255,255,255,.3); display:inline-block }
+  .chip.ok { background:var(--ok-soft); color:var(--ok) }
+  .chip.warn { background:var(--warn-soft); color:var(--warn) }
+  .chip.err { background:var(--err-soft); color:var(--err) }
+  .chip.acc { background:var(--accent-soft); color:var(--accent-hi) }
+  .chips { display:flex; gap:6px; flex-wrap:wrap }
+
+  /* ---------- progresso ---------- */
+  .prog { margin:2px 0 }
+  .pbar2 { height:6px; background:var(--line); border-radius:99px; overflow:hidden }
+  .pbar2 i { display:block; height:100%; width:100%; background:var(--accent-hi); border-radius:99px; transform:scaleX(0); transform-origin:left; transition:transform .5s linear }
+  .ptxt { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:5px; font-size:12px; color:var(--text-3) }
+  .ptxt b { color:var(--text); font-variant-numeric:tabular-nums; font-weight:600 }
+  .cx { min-height:22px !important; padding:0 6px !important; margin-left:6px; font-size:12px !important; color:var(--err) !important }
+  .gbar { padding:14px 16px; margin-bottom:14px; border:1px solid var(--accent-line); border-radius:12px; background:var(--surface) }
+  .gbar .gl { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px }
+  .gbar .gl b { font-variant-numeric:tabular-nums }
+  .gbar .pbar2 { height:8px }
+
+  /* ---------- variações: barra de ferramentas + grade + painel ---------- */
+  .workbench { display:grid; grid-template-columns:minmax(0,1fr); gap:20px; align-items:start }
+  .workbench.with-panel { grid-template-columns:minmax(0,1fr) 340px }
+  .tools { display:flex; align-items:center; flex-wrap:wrap; gap:10px 12px; margin-bottom:14px }
+  .seg { display:inline-flex; padding:3px; border-radius:10px; background:var(--panel); border:1px solid var(--line) }
+  .seg button { min-height:28px; padding:0 12px; background:transparent; color:var(--text-2); border-radius:7px; font-weight:500; font-size:13px }
+  .seg button:hover:not(:disabled) { background:var(--raised); color:var(--text) }
+  .seg button.on { background:var(--raised); color:var(--text) }
+  .search { position:relative; flex:1 1 180px; max-width:280px }
+  .search .i { position:absolute; left:10px; top:50%; transform:translateY(-50%); width:15px; height:15px; color:var(--text-3); pointer-events:none }
+  .search input { padding-left:32px }
+  .tools .sp { flex:1 }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(176px,1fr)); gap:14px }
+  .v { position:relative; overflow:hidden; display:flex; flex-direction:column; border:1px solid var(--line); border-radius:12px; background:var(--surface); transition:border-color .15s }
+  .v:hover { border-color:var(--line-2) }
+  .v.picked { outline:2px solid var(--accent-hi); outline-offset:-1px }
+  .v video { display:block; width:100%; aspect-ratio:9/16; background:#000 }
+  .ph { display:grid; place-items:center; aspect-ratio:9/16; background:var(--field); color:var(--text-3); font-size:13px; text-align:center; padding:8px }
+  .pick { position:absolute; top:8px; left:8px; z-index:2; width:26px; height:26px; cursor:pointer }
+  .pick input { position:absolute; inset:0; opacity:0; margin:0; cursor:pointer }
+  .pick .box { display:grid; place-items:center; width:26px; height:26px; border-radius:8px; background:rgba(13,15,19,.72); border:1.5px solid rgba(255,255,255,.55); color:transparent; transition:background-color .15s, border-color .15s }
+  .pick .box .i { width:15px; height:15px; stroke-width:2.6 }
+  .pick input:checked + .box { background:var(--accent); border-color:var(--accent); color:#fff }
+  .pick input:focus-visible + .box { outline:2px solid var(--accent-hi); outline-offset:2px }
+  .v .prog { padding:8px 12px 0 }
+  .v-body { padding:10px 12px 8px; display:flex; flex-direction:column; gap:8px; min-width:0 }
+  .plist { display:flex; flex-direction:column; gap:1px; font-size:12.5px; color:var(--text-2) }
+  .plist div { display:flex; gap:8px; min-width:0 }
+  .plist span:first-child { flex:none; width:46px; color:var(--text-3) }
+  .plist span:last-child { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .v-actions { display:flex; align-items:center; gap:2px; padding:6px 8px 8px; margin-top:auto; border-top:1px solid var(--line) }
+  .v-actions .sp { flex:1 }
+  .empty { display:flex; flex-direction:column; align-items:center; gap:6px; padding:44px 20px; border:1.5px dashed var(--line-2); border-radius:var(--r-card); color:var(--text-3); text-align:center }
+  .empty b { color:var(--text); font-size:15px; font-weight:600 }
+  .empty p { max-width:46ch }
+
+  .panel { position:sticky; top:72px; max-height:calc(100vh - 88px); overflow:auto; border:1px solid var(--line); border-radius:var(--r-card); background:var(--panel) }
+  .panel-head { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:16px 16px 12px }
+  .panel-head h3 { font-size:15px; font-weight:600 }
+  .panel-head p { margin-top:2px; font-size:12.5px; color:var(--text-3) }
+  .panel-head .chev { display:none }
+  .opts { padding:0 16px; border-top:1px solid var(--line) }
+  .opt { padding:14px 0; border-top:1px solid var(--line) }
+  .opt:first-child { border-top:0 }
+  .opt .help { margin:6px 0 0 46px; font-size:12.5px; color:var(--text-3) }
+  .sub { display:none; gap:8px; margin:12px 0 0 46px }
+  .opt:has(> .switch input:checked) > .sub { display:grid }
+  .sub label.inline { display:flex; align-items:center; gap:8px; color:var(--text-2) }
+  .sub label.inline input[type=number] { width:72px }
+  .sub .row2 { display:flex; align-items:center; gap:14px; flex-wrap:wrap; color:var(--text-2) }
+  .sub .row2 label { display:flex; align-items:center; gap:8px }
+  .field { display:flex; flex-direction:column; gap:6px; font-size:12.5px; color:var(--text-2) }
+  .switch { display:flex; align-items:center; gap:12px; cursor:pointer; font-weight:600 }
+  .switch input { position:absolute; opacity:0; width:0; height:0 }
+  .switch .track { position:relative; flex:none; width:34px; height:20px; border-radius:99px; background:var(--line-2); transition:background-color .15s }
+  .switch .track::after { content:""; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:#fff; transition:transform .15s }
+  .switch input:checked + .track { background:var(--accent) }
+  .switch input:checked + .track::after { transform:translateX(14px) }
+  .switch input:focus-visible + .track { outline:2px solid var(--accent-hi); outline-offset:2px }
+  .panel-foot { display:grid; gap:8px; padding:14px 16px 16px; border-top:1px solid var(--line) }
+  details.rm summary { display:flex; align-items:center; justify-content:center; gap:6px; min-height:32px; border-radius:8px; color:var(--text-2); cursor:pointer; list-style:none; font-weight:500 }
+  details.rm summary::-webkit-details-marker { display:none }
+  details.rm summary:hover { background:var(--raised); color:var(--text) }
+  details.rm[open] summary .i { transform:rotate(180deg) }
+  details.rm summary .i { transition:transform .15s }
+  .rm-list { display:grid; gap:6px; margin-top:8px }
+  .rm-list button { justify-content:flex-start }
+  .hint { color:var(--text-3); font-size:12.5px; margin-top:8px }
+  .hint.is-warn { color:var(--warn) }
+
+  /* ---------- referências ---------- */
+  .rgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:16px }
+  .rc { display:flex; flex-direction:column; gap:12px; padding:14px; border:1px solid var(--line); border-radius:var(--r-card); background:var(--surface); min-width:0 }
+  .rc b { font-weight:600; word-break:break-word }
+  .rc small { display:block; margin-top:2px; color:var(--text-3); font-size:12.5px }
+  .rframes { display:flex; gap:6px; overflow:hidden }
+  .rframes img { height:130px; border-radius:6px; flex:none; background:#000 }
+  .acts { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+  .rempty { color:var(--text-2); max-width:70ch }
+
+  /* ---------- janela de edição (tratamento, partes, legenda...) ---------- */
+  #modal { position:fixed; inset:0; z-index:50; display:none; overflow:auto; padding:24px; background:rgba(5,6,8,.74) }
   #modal.open { display:block }
-  .ed { background:var(--bg); border:1px solid var(--line); border-radius:14px; max-width:1060px; margin:0 auto; display:grid; grid-template-columns:340px 1fr; gap:0 }
-  @media (max-width:860px){ .ed{grid-template-columns:1fr} }
+  .ed { display:grid; grid-template-columns:340px 1fr; max-width:1060px; margin:0 auto; border-radius:16px; background:var(--panel); box-shadow:var(--shadow) }
   .ed-left { padding:18px; border-right:1px solid var(--line) }
-  .ed-right { padding:18px; max-height:calc(100vh - 40px); overflow:auto }
-  .stage { position:relative; width:100%; aspect-ratio:9/16; background:#000; border-radius:10px; overflow:hidden }
-  .stage video { width:100%; height:100%; display:block }
+  .ed-right { padding:18px 20px; max-height:calc(100vh - 48px); overflow:auto }
+  .stage { position:relative; width:100%; aspect-ratio:9/16; border-radius:10px; overflow:hidden; background:#000 }
+  .stage video { display:block; width:100%; height:100% }
   #ov { position:absolute; inset:0; pointer-events:none; overflow:hidden }
   #ov div { position:absolute; left:50%; transform:translate(-50%,-50%); width:86%; text-align:center; line-height:1.12; paint-order:stroke fill; word-break:break-word }
-  .ed h3 { margin:0 0 10px; font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--mut) }
-  .blk { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:14px }
-  .f { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; margin-top:10px }
-  label.fl { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--mut) }
-  input, select, textarea { background:#0f1115; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:6px 8px; font:inherit; width:100% }
-  input[type=color] { padding:0; height:32px }
-  input[type=checkbox] { width:auto }
-  input[type=range] { padding:0 }
-  .words { display:flex; flex-wrap:wrap; gap:4px; margin-top:12px; max-height:170px; overflow:auto }
-  .words input { width:auto; padding:3px 6px; font-size:13px; min-width:30px }
-  .txt { border:1px solid var(--line); border-radius:8px; padding:10px; margin-top:10px }
-  .hint { color:var(--mut); font-size:12px; margin-top:8px }
-  .bar { display:flex; gap:10px; justify-content:flex-end; margin-top:6px }
+  .ed-top { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px }
+  .ed-top strong { font-size:17px; font-weight:600; letter-spacing:-.01em; line-height:1.3 }
+  .ed h3 { margin:0 0 4px; font-size:14.5px; font-weight:600; color:var(--text) }
+  .blk { padding:16px 0; border-top:1px solid var(--line) }
+  .ed-right > .blk:first-of-type, .ed-top + .blk { border-top:0; padding-top:4px }
+  .f { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; margin-top:12px }
+  label.fl { display:flex; flex-direction:column; gap:5px; font-size:12.5px; color:var(--text-2) }
+  .row { display:flex; justify-content:space-between; align-items:center; gap:10px }
   .inl { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
   .inl select { width:auto }
-  .ed.batch { grid-template-columns:1fr; max-width:660px }
+  .bar { display:flex; gap:10px; justify-content:flex-end; margin-top:6px }
+  .words { display:flex; flex-wrap:wrap; gap:5px; margin-top:12px; max-height:170px; overflow:auto }
+  .words input { width:auto; min-height:28px; padding:0 7px; font-size:13px; min-width:30px }
+  .frames { display:flex; gap:6px; overflow-x:auto; padding-bottom:4px }
+  .frames img { height:150px; border-radius:6px; border:1px solid var(--line) }
+  .txt { padding:12px 0; margin-top:6px; border-top:1px solid var(--line) }
+  .part { padding:14px 0 12px; border-top:1px solid var(--line) }
+  .part:first-child { border-top:0 }
+  .part.playing { background:var(--accent-soft); border-radius:10px; padding-left:12px; padding-right:12px }
+  .part .vol { margin-left:6px; color:var(--text); font-variant-numeric:tabular-nums }
+  .part .eqnote { margin-top:6px; color:var(--accent-hi) }
+  .eqrow { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) 150px 70px; gap:10px; align-items:center; padding:10px 0; border-top:1px solid var(--line) }
+  .eqrow:first-child { border-top:0 }
+  .eqrow .nm { overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .eqrow .vol { text-align:right; font-variant-numeric:tabular-nums }
+  .dots { display:inline-flex; gap:6px; align-items:center }
+  .dot { width:9px; height:9px; border-radius:50%; border:1.5px solid var(--line-2) }
+  .dot.done { background:var(--ok); border-color:var(--ok) }
+  .dot.cur { background:var(--accent-hi); border-color:var(--accent-hi) }
+  .ed.batch { grid-template-columns:1fr; max-width:680px }
   .ed.batch.m-style { grid-template-columns:340px 1fr; max-width:1060px }
   .ed.batch .only-one { display:none }
   .ed.batch.m-batch .ed-left { display:none }
@@ -91,129 +294,204 @@
   .ed:not(.m-style) .only-style { display:none }
   .ed.m-style .no-style, .ed.m-style .not-style { display:none }
   .ed.m-default .only-style, .ed.m-default .only-multi { display:none }
-  .frames { display:flex; gap:6px; overflow-x:auto; padding-bottom:4px }
-  .frames img { height:150px; border-radius:6px; border:1px solid var(--line) }
-  .refs { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:14px }
-  .rcard { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px; display:flex; gap:10px }
-  .rcard img { width:64px; height:114px; object-fit:cover; border-radius:6px; background:#000; flex:none }
-  .rcard .n { flex:1; min-width:0 }
-  .rcard .n b { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
-  .rcard small { color:var(--mut); display:block; margin:4px 0 8px }
-  .refdrop { display:grid; place-items:center; min-height:114px }
-  .pick { padding:6px 8px }
-  .nav { display:flex; gap:4px }
-  .nav a { color:var(--mut); text-decoration:none; padding:8px 14px; border-radius:8px; font-weight:600 }
-  .nav a.on { color:var(--txt); background:var(--card); border:1px solid var(--line); padding:7px 13px }
-  .warn { background:#3a2a10; border-bottom:1px solid #7a5a1a; color:#ffd58a; padding:12px 28px; font-size:14px }
-  .rgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:16px }
-  .rc { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; display:flex; flex-direction:column; gap:10px }
-  .rframes { display:flex; gap:6px; overflow:hidden }
-  .rframes img { height:130px; border-radius:6px; flex:none; background:#000 }
-  .rc b { display:block; word-break:break-word }
-  .rc small { color:var(--mut) }
-  .chips { display:flex; gap:6px; flex-wrap:wrap }
-  .chip { font-size:12px; background:#0f1115; border:1px solid var(--line); border-radius:99px; padding:3px 9px; display:inline-flex; align-items:center; gap:6px }
-  .chip i { width:10px; height:10px; border-radius:50%; display:inline-block; border:1px solid #fff4 }
-  .acts { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
-  .rempty { color:var(--mut); margin:0 0 14px; max-width:620px }
-  .qbar { display:flex; flex-wrap:wrap; gap:12px 20px; align-items:center; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin:0 0 16px }
-  .q { display:flex; align-items:center; gap:8px; font-size:14px }
-  .q[hidden] { display:none }
-  .rmrow { flex-basis:100%; border-top:1px solid var(--line); padding-top:10px; flex-wrap:wrap }
-  .q input[type=number] { width:64px }
-  .q input[type=text] { width:240px }
-  .q select { width:auto; max-width:170px }
-  .pbar2 { height:7px; background:var(--line); border-radius:99px; overflow:hidden }
-  .pbar2 i { display:block; height:100%; width:0; background:var(--acc); border-radius:99px; transition:width .5s linear }
-  .ptxt { display:flex; justify-content:space-between; gap:8px; font-size:12px; color:var(--mut); margin-top:5px }
-  .ptxt b { color:var(--txt); font-variant-numeric:tabular-nums }
-  .prog { margin:8px 0 2px }
-  .cx { padding:0 4px !important; margin-left:6px; font-size:12px !important; color:var(--err) !important }
-  .cx:hover { text-decoration:underline }
-  .gbar { background:var(--card); border:1px solid var(--acc); border-radius:12px; padding:12px 14px; margin:0 0 12px }
-  .gbar .gl { display:flex; justify-content:space-between; gap:12px; margin-bottom:8px; font-size:14px }
-  .gbar .pbar2 { height:10px }
   .ed.m-parts .blk:not(.only-parts) { display:none }
   .ed:not(.m-parts) .only-parts { display:none }
-  .part { background:#0f1115; border:1px solid var(--line); border-radius:10px; padding:12px; margin-top:10px }
-  .part.playing { border-color:var(--acc) }
-  .part .vol { color:var(--txt); font-variant-numeric:tabular-nums; margin-left:6px }
-  .part .eqnote { color:var(--acc); margin-top:6px }
   .ed.m-treat .blk:not(.only-treat), .ed.m-treat #save { display:none }
   .ed.m-treat .ed-left .hint, .ed.m-parts .ed-left .hint { display:none }
   .ed:not(.m-treat) .only-treat { display:none }
-  .amber { color:#ffb84d !important }
-  .okc { color:var(--ok) !important }
-  .eqrow { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) 150px 70px; gap:10px; align-items:center; padding:8px 0; border-top:1px solid var(--line) }
-  .eqrow:first-child { border-top:0 }
-  .eqrow .nm { overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
-  .dots { letter-spacing:3px }
-  .pbar { height:5px; background:var(--line); border-radius:99px; overflow:hidden; margin-top:6px }
-  .pbar i { display:block; height:100%; width:0; background:var(--acc); transition:width .2s }
-  .up { border-style:dashed; border-color:var(--acc) }
-  .up .ic { width:48px; height:84px; display:grid; place-items:center; color:var(--acc); font-size:20px; flex:none }
-  .tools { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:0 0 14px }
-  .v { position:relative }
-  .v .sel { position:absolute; top:16px; left:16px; width:22px; height:22px; accent-color:var(--acc); z-index:2 }
-  .v.picked { border-color:var(--acc) }
-  .tag { font-size:11px; color:var(--acc) }
+
+  /* ---------- responsivo ---------- */
+  @media (max-width:1099px) {
+    .workbench, .workbench.with-panel { grid-template-columns:minmax(0,1fr) }
+    .results { padding-bottom:84px }
+    .panel { position:fixed; left:12px; right:12px; bottom:12px; top:auto; z-index:40; max-height:min(80vh,660px); border-color:transparent; box-shadow:var(--shadow) }
+    .panel:not(.open) .opts, .panel:not(.open) .panel-foot { display:none }
+    .panel-head { cursor:pointer }
+    .panel-head .chev { display:block; transition:transform .15s }
+    .panel.open .panel-head .chev { transform:rotate(180deg) }
+  }
+  @media (max-width:900px) {
+    .lanes { grid-template-columns:1fr }
+    .ed { grid-template-columns:1fr }
+    .ed.batch.m-style { grid-template-columns:1fr }
+    .ed-left { border-right:0; border-bottom:1px solid var(--line) }
+    .ed-right { max-height:none }
+    .stage { max-width:260px; margin:0 auto }
+  }
+  @media (max-width:720px) {
+    .topbar { padding:0 14px; gap:10px }
+    .brand .name { display:none }
+    .page { padding:16px 14px 96px }
+    .banner { padding:12px 14px }
+    .steps { gap:6px }
+    .step { padding:8px; gap:8px }
+    .step .t span { display:none }
+    .step .t b { font-size:12px }
+    .step .num { width:24px; height:24px; font-size:12px }
+    .next { flex-direction:column; align-items:stretch; padding:16px }
+    .next-act { flex-direction:column }
+    .next-act button { width:100% }
+    #modal { padding:10px }
+    .eqrow { grid-template-columns:1fr 1fr; }
+    .eqrow input[type=range] { grid-column:1 / -1 }
+  }
+  @media (max-width:480px) {
+    .step .t { display:none }
+    .step { justify-content:center }
+    .grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px }
+  }
+  @media (prefers-reduced-motion:reduce) { *, *::before, *::after { transition:none !important } }
 </style>
 </head>
 <body>
-<header>
-  <h1>🎬 Variações de Criativo</h1>
-  <nav class="nav"><a href="#criativos" data-view="main">Criativos</a><a href="#referencias" data-view="refs">Referências <span id="refcount" style="color:var(--mut)"></span></a></nav>
-  <div id="headtools" style="display:flex;gap:12px;align-items:center">
-    <span id="count" style="color:var(--mut)"></span>
-    <button id="treatbtn" style="display:none"></button>
-    <button id="gen" disabled>Gerar variações</button>
-  </div>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="3"/><path d="M10 9.2v5.6l4.6-2.8z"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15.5V5"/><path d="M7.5 9 12 4.5 16.5 9"/><path d="M5 14.5v3A1.5 1.5 0 0 0 6.5 19h11a1.5 1.5 0 0 0 1.5-1.5v-3"/></symbol>
+    <symbol id="i-scissors" viewBox="0 0 24 24"><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="6.5" cy="17.5" r="2.5"/><path d="M8.7 7.8 19 16.5"/><path d="M8.7 16.2 19 7.5"/></symbol>
+    <symbol id="i-captions" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 11h4M13 11h4M7 15h2.5M12 15h5"/></symbol>
+    <symbol id="i-type" viewBox="0 0 24 24"><path d="M5 7.5V5.5h14v2"/><path d="M12 5.5V19"/><path d="M9 19h6"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4.5v11"/><path d="M7.5 11 12 15.5 16.5 11"/><path d="M5 19.5h14"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15"/><path d="M9.5 7V5h5v2"/><path d="M6.5 7l.8 12h9.4l.8-12"/><path d="M10 11v5M14 11v5"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5 9.5 17 19 7.5"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M5 20v-7M5 9V4M12 20v-3M12 13V4M19 20v-9M19 7V4"/><circle cx="5" cy="11" r="2"/><circle cx="12" cy="15" r="2"/><circle cx="19" cy="9" r="2"/></symbol>
+    <symbol id="i-redo" viewBox="0 0 24 24"><path d="M19.5 12a7.5 7.5 0 1 1-2.4-5.5"/><path d="M19.5 4.5V9H15"/></symbol>
+    <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/></symbol>
+    <symbol id="i-pipette" viewBox="0 0 24 24"><path d="M14.5 5.5 18.5 9.5"/><path d="M16.5 7.5 8 16l-.6 3.4 3.4-.6 8.5-8.5"/><path d="M17 4.5a2.1 2.1 0 0 1 3 3L18.5 9"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="1.8"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4.5 3.5 19h17z"/><path d="M12 10v4M12 16.7v.1"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></symbol>
+    <symbol id="i-wand" viewBox="0 0 24 24"><path d="M5 19 16 8"/><path d="m14 6 4 4"/><path d="M18 3v3M16.5 4.5h3M6 5v2.5M4.75 6.25h2.5"/></symbol>
+  </defs>
+</svg>
+
+<header class="topbar">
+  <h1 class="brand"><span class="mark"><svg class="i"><use href="#i-film"/></svg></span><span class="name">Variações de Criativo</span></h1>
+  <nav class="nav" aria-label="Seções">
+    <a href="#criativos" data-view="main">Criativos</a>
+    <a href="#referencias" data-view="refs">Referências <span id="refcount" class="count"></span></a>
+  </nav>
+  <div id="headtools"></div>
 </header>
-<div id="storewarn" class="warn" hidden>⚠ <b>Os dados não estão sendo salvos de forma permanente.</b> Por isso tudo some (inclusive as referências) quando o sistema atualiza ou reinicia. <span id="storereason"></span> No EasyPanel: aba <b>Mounts → Add Mount → Volume</b>, com Mount Path <b>/data</b>, e faça <b>Deploy</b> de novo.</div>
-<main>
+<div id="storewarn" class="banner" role="alert" hidden>
+  <svg class="i"><use href="#i-alert"/></svg>
+  <div><b>Os dados não estão sendo salvos de forma permanente.</b> Por isso tudo some (inclusive as referências) quando o sistema atualiza ou reinicia. <span id="storereason"></span> No EasyPanel: aba <b>Mounts → Add Mount → Volume</b>, com Mount Path <b>/data</b>, e faça <b>Deploy</b> de novo.</div>
+</div>
+
+<main class="page">
   <div id="view-refs" hidden>
-    <section style="margin-top:0">
-      <h2>Referências salvas</h2>
-      <p class="rempty">Suba vídeos cujo estilo você quer copiar. Eles ficam salvos aqui e aparecem no campo <b>Estilo</b> da página Criativos, na hora de gerar ou legendar. Clique em <b>Ajustar estilo</b> para acertar fonte, cor e corte de pausas de cada uma.</p>
+    <section class="sec" style="margin-top:0">
+      <div class="sec-head"><h2>Referências salvas</h2></div>
+      <p class="rempty" style="margin-bottom:16px">Suba vídeos cujo estilo você quer copiar. Eles ficam salvos aqui e aparecem no campo <b>Estilo</b> da página Criativos, na hora de gerar ou legendar. Clique em <b>Ajustar estilo</b> para acertar fonte, cor e corte de pausas de cada uma.</p>
       <div class="rgrid" id="refs"></div>
     </section>
   </div>
+
   <div id="view-main">
-  <div class="cols" id="cols"></div>
-  <section>
-    <h2>Variações geradas <span id="vcount" style="color:var(--mut);font-weight:400"></span></h2>
-    <div class="tools" id="tools" style="display:none">
-      <button class="sm line" id="selall">Selecionar todas</button>
-      <button class="sm" id="capall" title="Coloca legenda, no estilo padrão, em todas as variações que ainda não têm">Legendar todos</button>
-      <button class="sm line" id="defstyle" title="Fonte, cor, tamanho e posição que valem por padrão">Estilo padrão da legenda…</button>
-      <span class="hint" id="selinfo" style="margin:0"></span>
-    </div>
-    <div class="gbar" id="gbar" style="display:none">
-      <div class="gl"><span id="gtxt"></span><span class="inl"><b id="gpct"></b><button class="sm line" id="gcancel">Cancelar tudo</button></span></div>
-      <div class="pbar2"><i id="gfill"></i></div>
-    </div>
-    <div class="qbar" id="qbar" style="display:none">
-      <label class="q"><input type="checkbox" id="q_cut"> Cortar pausas maiores que <input type="number" id="q_cutsec" value="2" min="0.5" max="10" step="0.5"> s</label>
-      <label class="q"><input type="checkbox" id="q_cap"> Legenda
-        <select id="q_lang"><option value="pt">Português</option><option value="en">Inglês</option><option value="es">Espanhol</option><option value="auto">Detectar idioma</option></select></label>
-      <label class="q"><input type="checkbox" id="q_txt"> Texto na tela <input type="text" id="q_txtv" placeholder="Digite o texto" maxlength="200"></label>
-      <label class="q" title="Deixa o texto na tela do começo ao fim do vídeo"><input type="checkbox" id="q_txtall" checked> durante o vídeo todo</label>
-      <label class="q" id="q_txtdurbox" hidden>por <input type="number" id="q_txtdur" value="3" min="0.5" max="120" step="0.5"> s</label>
-      <label class="q" title="Deixa gancho, corpo e CTA no mesmo volume de som"><input type="checkbox" id="q_eq"> Equalizar volume das partes</label>
-      <label class="q">Estilo <select id="q_ref"><option value="">padrão</option></select></label>
-      <button id="apply" disabled>Aplicar nos selecionados</button>
-      <button class="sm line" id="more" disabled title="Fonte, cor, tamanho, posição e tempo">Mais opções…</button>
-      <div class="q rmrow">
-        <span class="hint" style="margin:0">Marcar acima só <b>adiciona</b>: o que o vídeo já tem é mantido. Para tirar, use:</span>
-        <button class="sm line rmbtn" data-rm="captions" disabled>Tirar legenda</button>
-        <button class="sm line rmbtn" data-rm="texts" disabled>Tirar texto</button>
-        <button class="sm line rmbtn" data-rm="cut" disabled>Tirar corte de pausas</button>
-        <button class="sm line rmbtn" data-rm="parts" disabled>Tirar ajustes de partes</button>
-        <button class="sm line rmbtn" data-rm="all" disabled>Voltar ao original</button>
+    <ol class="steps" id="steps" aria-label="Etapas"></ol>
+    <section class="next" id="next" aria-live="polite">
+      <div>
+        <h2 id="nextTitle">Comece subindo os vídeos</h2>
+        <p id="nextText"></p>
+        <span id="count" class="next-count"></span>
       </div>
-    </div>
-    <div class="grid" id="vars"></div>
-  </section>
+      <div class="next-act">
+        <button id="treatbtn" class="lg" style="display:none"></button>
+        <button id="gen" class="lg" disabled>Gerar variações</button>
+      </div>
+    </section>
+
+    <section class="sec" id="sec-clips">
+      <div class="sec-head"><h2>Seus vídeos</h2><p>O gancho abre o anúncio, o corpo explica e o CTA chama para a ação. Todas as combinações viram variações.</p></div>
+      <div class="lanes" id="cols"></div>
+    </section>
+
+    <section class="sec" id="sec-vars">
+      <div class="sec-head"><h2>Variações <span id="vcount" class="count"></span></h2></div>
+      <div class="gbar" id="gbar" style="display:none">
+        <div class="gl"><span id="gtxt"></span><span class="inl"><b id="gpct"></b><button class="sm line" id="gcancel">Cancelar tudo</button></span></div>
+        <div class="pbar2"><i id="gfill"></i></div>
+      </div>
+      <div class="workbench">
+        <div class="results">
+          <div class="tools" id="tools" style="display:none">
+            <div class="seg" id="vfilter" role="group" aria-label="Filtrar variações">
+              <button class="on" data-f="all">Todas</button><button data-f="nocap">Sem legenda</button><button data-f="edited">Editadas</button>
+            </div>
+            <div class="search"><svg class="i"><use href="#i-search"/></svg><input type="text" id="vsearch" placeholder="Buscar pelo nome do vídeo" aria-label="Buscar variações"></div>
+            <span class="sp"></span>
+            <button class="sm line" id="selall">Selecionar todas</button>
+            <button class="sm line" id="capall" title="Coloca legenda, no estilo padrão, em todas as variações que ainda não têm"><svg class="i"><use href="#i-captions"/></svg>Legendar todos</button>
+          </div>
+          <div class="grid" id="vars"></div>
+          <div class="empty" id="vempty">
+            <svg class="i" style="width:28px;height:28px;color:var(--text-3)"><use href="#i-film"/></svg>
+            <b>As variações aparecem aqui</b>
+            <p>Depois de tratar os vídeos, clique em <b>Gerar variações</b>. Cada combinação de gancho, corpo e CTA vira um vídeo pronto para editar e baixar.</p>
+          </div>
+        </div>
+
+        <aside class="panel" id="qbar" aria-label="Editar as variações selecionadas" style="display:none">
+          <div class="panel-head" id="panelHead">
+            <div><h3>Editar selecionadas</h3><p id="selinfo"></p></div>
+            <svg class="i chev"><use href="#i-chevron"/></svg>
+          </div>
+          <div class="opts">
+            <div class="opt">
+              <label class="switch"><input type="checkbox" id="q_cut"><span class="track"></span>Cortar pausas</label>
+              <div class="sub"><label class="inline">Maiores que <input type="number" id="q_cutsec" value="2" min="0.5" max="10" step="0.5"> s</label></div>
+              <p class="help">Tira os silêncios longos e deixa só um respiro curto.</p>
+            </div>
+            <div class="opt">
+              <label class="switch" title="Deixa gancho, corpo e CTA no mesmo volume de som"><input type="checkbox" id="q_eq"><span class="track"></span>Equalizar volume</label>
+              <p class="help">Iguala o som das três partes de cada vídeo.</p>
+            </div>
+            <div class="opt">
+              <label class="switch"><input type="checkbox" id="q_cap"><span class="track"></span>Legenda</label>
+              <div class="sub">
+                <label class="field">Idioma da fala
+                  <select id="q_lang"><option value="pt">Português</option><option value="en">Inglês</option><option value="es">Espanhol</option><option value="auto">Detectar idioma</option></select></label>
+              </div>
+            </div>
+            <div class="opt">
+              <label class="switch"><input type="checkbox" id="q_txt"><span class="track"></span>Texto na tela</label>
+              <div class="sub">
+                <input type="text" id="q_txtv" placeholder="Digite o texto" maxlength="200" aria-label="Texto na tela">
+                <div class="row2">
+                  <label title="Deixa o texto na tela do começo ao fim do vídeo"><input type="checkbox" id="q_txtall" checked> Durante o vídeo todo</label>
+                  <label id="q_txtdurbox" hidden>Por <input type="number" id="q_txtdur" value="3" min="0.5" max="120" step="0.5" style="width:70px"> s</label>
+                </div>
+              </div>
+            </div>
+            <div class="opt">
+              <label class="field">Estilo da legenda e do texto
+                <select id="q_ref"><option value="">Padrão</option></select></label>
+              <button class="sm ghost" id="defstyle" title="Fonte, cor, tamanho e posição que valem por padrão" style="margin-top:6px;padding:0">Editar o estilo padrão da legenda</button>
+            </div>
+          </div>
+          <div class="panel-foot">
+            <button id="apply" class="lg block" disabled>Aplicar nos selecionados</button>
+            <button class="line block" id="more" disabled title="Fonte, cor, tamanho, posição e tempo">Mais opções</button>
+            <details class="rm">
+              <summary>Tirar edições <svg class="i"><use href="#i-chevron"/></svg></summary>
+              <div class="rm-list">
+                <button class="sm line rmbtn" data-rm="captions" disabled>Tirar legenda</button>
+                <button class="sm line rmbtn" data-rm="texts" disabled>Tirar texto</button>
+                <button class="sm line rmbtn" data-rm="cut" disabled>Tirar corte de pausas</button>
+                <button class="sm line rmbtn" data-rm="parts" disabled>Tirar ajustes de partes</button>
+                <button class="sm line rmbtn" data-rm="all" disabled>Voltar ao original</button>
+              </div>
+            </details>
+            <p class="hint" style="margin:0">Ligar uma opção só <b>adiciona</b>: o que o vídeo já tem é mantido.</p>
+          </div>
+        </aside>
+      </div>
+    </section>
   </div>
 </main>
 
@@ -224,8 +502,8 @@
       <div class="hint">A prévia é aproximada. O resultado final (com animações) é renderizado ao salvar.</div>
     </div>
     <div class="ed-right">
-      <div class="row" style="margin-bottom:14px">
-        <strong id="edtitle" style="font-size:16px"></strong>
+      <div class="ed-top">
+        <strong id="edtitle"></strong>
         <div class="bar" style="margin:0">
           <button class="line" id="cancel">Cancelar</button>
           <button id="save">Salvar e renderizar</button>
@@ -236,29 +514,29 @@
         <div class="row"><b id="tIdx"></b><span class="dots hint" id="tDots" style="margin:0"></span></div>
         <div style="margin:8px 0 12px;font-size:16px;font-weight:600" id="tName"></div>
         <div class="f">
-          <label class="fl">Início (s) <span class="inl"><input type="number" step="0.1" min="0" id="ts" style="width:84px"><button class="sm line" id="tHereS">aqui</button></span></label>
-          <label class="fl">Fim (s) <span class="inl"><input type="number" step="0.1" min="0" id="te" style="width:84px"><button class="sm line" id="tHereE">aqui</button></span></label>
+          <label class="fl">Início (s) <span class="inl"><input type="number" step="0.1" min="0" id="ts" style="width:84px"><button class="sm line" id="tHereS" title="Usar a posição atual do vídeo como início" aria-label="Marcar início na posição atual"><svg class="i"><use href="#i-target"/></svg></button></span></label>
+          <label class="fl">Fim (s) <span class="inl"><input type="number" step="0.1" min="0" id="te" style="width:84px"><button class="sm line" id="tHereE" title="Usar a posição atual do vídeo como fim" aria-label="Marcar fim na posição atual"><svg class="i"><use href="#i-target"/></svg></button></span></label>
         </div>
         <label class="fl" style="margin-top:12px">Arraste para escolher o início <input type="range" id="rs" min="0" step="0.05"></label>
         <label class="fl" style="margin-top:8px">Arraste para escolher o fim <input type="range" id="re" min="0" step="0.05"></label>
-        <div class="inl" style="margin-top:12px"><button class="sm line" id="tPlay">▶ Ver só o trecho</button><span class="hint" id="tInfo" style="margin:0"></span></div>
-        <div class="hint">Tire só o que sobra no começo e no fim. Se já está bom, clique em OK. Use <b>aqui</b> para pegar o ponto exato onde o vídeo está parado.</div>
-        <div class="bar" style="margin-top:16px"><button class="line" id="tBack">← Voltar</button><button id="tOk">OK, próximo →</button></div>
+        <div class="inl" style="margin-top:12px"><button class="sm line" id="tPlay"><svg class="i fill"><use href="#i-play"/></svg>Ver só o trecho</button><span class="hint" id="tInfo" style="margin:0"></span></div>
+        <div class="hint">Tire só o que sobra no começo e no fim. Se já está bom, clique em OK. Use o botão de alvo para marcar o ponto exato onde o vídeo está parado.</div>
+        <div class="bar" style="margin-top:16px"><button class="line" id="tBack"><svg class="i "><use href="#i-arrow-left"/></svg>Voltar</button><button id="tOk">OK, próximo<svg class="i "><use href="#i-arrow-right"/></svg></button></div>
       </div>
       <div class="blk only-treat" id="treatEq" hidden>
-        <h3>Equalizar o volume entre os vídeos</h3>
+        <h3>Ajuste por vídeo</h3>
         <div class="hint" style="margin:0 0 8px" id="eqHint"></div>
         <div id="eqList"></div>
-        <div class="bar" style="margin-top:16px"><button class="line" id="eBack">← Voltar</button><button class="line" id="eSkip">Concluir sem equalizar</button><button id="eOk">Equalizar e concluir</button></div>
+        <div class="bar" style="margin-top:16px"><button class="line" id="eBack"><svg class="i "><use href="#i-arrow-left"/></svg>Voltar</button><button class="line" id="eSkip">Concluir sem equalizar</button><button id="eOk">Equalizar e concluir</button></div>
       </div>
 
       <div class="blk only-parts">
         <h3>Partes do vídeo</h3>
-        <div class="hint" style="margin:0 0 4px">Escolha o trecho (início e fim) e o volume de cada parte. Use <b>▶ Ouvir</b> para testar o som e <b>aqui</b> para pegar o ponto exato do vídeo.</div>
+        <div class="hint" style="margin:0 0 4px">Escolha o trecho (início e fim) e o volume de cada parte. Use <b>Ouvir</b> para testar o som e o botão de alvo para marcar o ponto exato do vídeo.</div>
         <div id="partsList"></div>
         <div class="inl" style="margin-top:12px">
           <button class="sm" id="eqparts" title="Deixa gancho, corpo e CTA no mesmo volume (-16 LUFS)">Equalizar volume das partes</button>
-          <button class="sm line" id="playall">▶ Ouvir tudo</button>
+          <button class="sm line" id="playall"><svg class="i fill"><use href="#i-play"/></svg>Ouvir tudo</button>
           <button class="sm line" id="resetparts">Restaurar padrão</button>
           <span class="hint" id="partsinfo" style="margin:0"></span>
         </div>
@@ -274,7 +552,7 @@
         <h3>Quadros da referência</h3>
         <div class="frames" id="rframes"></div>
         <div class="hint" id="rmetrics"></div>
-        <div class="hint">Use o conta-gotas (💧) ao lado das cores e clique em um quadro acima para copiar a cor exata.</div>
+        <div class="hint">Use o conta-gotas ao lado das cores e clique em um quadro acima para copiar a cor exata.</div>
       </div>
 
       <div class="blk">
@@ -298,7 +576,7 @@
               <option value="caixa">Com fundo (caixa)</option>
             </select></label>
           <label class="fl">Fonte <select id="c_font"></select></label>
-          <label class="fl">Cor do destaque <span class="inl"><input type="color" id="c_color"><button class="sm line pick only-multi" data-pick="c_color" title="Conta-gotas">💧</button></span></label>
+          <label class="fl">Cor do destaque <span class="inl"><input type="color" id="c_color"><button class="sm line only-multi" data-pick="c_color" title="Conta-gotas: pega uma cor da tela"><svg class="i "><use href="#i-pipette"/></svg></button></span></label>
           <label class="fl">Palavras por linha <input type="number" id="c_wpl" min="1" max="8"></label>
           <label class="fl">Tamanho <input type="range" id="c_size" min="40" max="160"></label>
           <label class="fl">Posição vertical <input type="range" id="c_y" min="8" max="92"></label>
@@ -332,8 +610,8 @@
               <option value="slide">Sobe e aparece</option><option value="words">Palavra por palavra</option><option value="none">Sem efeito</option>
             </select></label>
           <label class="fl">Fonte <select id="t_font" data-b="text.font"></select></label>
-          <label class="fl">Cor <span class="inl"><input type="color" id="t_color" data-b="text.color"><button class="sm line pick" data-pick="t_color">💧</button></span></label>
-          <label class="fl">Cor do fundo <span class="inl"><input type="color" id="t_boxcolor" data-b="text.boxColor"><button class="sm line pick" data-pick="t_boxcolor">💧</button></span></label>
+          <label class="fl">Cor <span class="inl"><input type="color" id="t_color" data-b="text.color"><button class="sm line" data-pick="t_color" title="Conta-gotas: pega uma cor da tela"><svg class="i "><use href="#i-pipette"/></svg></button></span></label>
+          <label class="fl">Cor do fundo <span class="inl"><input type="color" id="t_boxcolor" data-b="text.boxColor"><button class="sm line" data-pick="t_boxcolor" title="Conta-gotas: pega uma cor da tela"><svg class="i "><use href="#i-pipette"/></svg></button></span></label>
           <label class="fl">Tamanho <input type="range" min="30" max="200" data-b="text.size" data-n></label>
           <label class="fl">Posição vertical <input type="range" min="5" max="95" data-b="text.yPct" data-n></label>
           <label class="fl">Início (s) <input type="number" step="0.1" min="0" data-b="text.start" data-n></label>
@@ -363,6 +641,9 @@ const PRESET = { destaque:{box:false,outline:7}, classica:{box:false,outline:5},
 let state = { clips:[], variations:[], refs:[] };
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s??"").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+const ic = (n, cls = "") => `<svg class="i ${cls}" aria-hidden="true"><use href="#i-${n}"/></svg>`;
+const plural = (n, a, b) => n === 1 ? a : b;
 
 async function refresh() {
   state = await (await fetch("/api/state")).json();
@@ -404,12 +685,73 @@ const progBox = (key, cancelId) => `<div class="prog" data-prog="${key}"><div cl
 
 function vTags(v) {
   const e = v.edit || {}, t = [];
-  if (e.captions?.enabled) t.push("✎ legenda");
-  if (e.texts?.length) t.push("T texto");
-  if (v.parts) t.push("🎚 partes");
-  if (v.baseFile) t.push(`✂ −${v.cutInfo?.removed ?? ""}s`.replace("−s", "cortado"));
-  else if (v.cutInfo) t.push(`✂ sem pausas >${v.cutInfo.minPause}s`);
-  return t.length ? `<span class="tag">${t.join(" · ")}</span>` : "";
+  if (e.captions?.enabled) t.push(`<span class="chip acc">${ic("captions")}legenda</span>`);
+  if (e.texts?.length) t.push(`<span class="chip acc">${ic("type")}texto</span>`);
+  if (v.parts) t.push(`<span class="chip acc">${ic("sliders")}partes</span>`);
+  if (v.baseFile) t.push(`<span class="chip acc">${ic("scissors")}${v.cutInfo?.removed != null ? "−" + v.cutInfo.removed + " s" : "cortado"}</span>`);
+  else if (v.cutInfo) t.push(`<span class="chip">${ic("scissors")}sem pausas &gt;${v.cutInfo.minPause} s</span>`);
+  return t.join("");
+}
+
+function clipState(c) {
+  if (c.status === "processing" || c.prog) return progBox("c" + c.id);
+  if (c.status === "error") return `<span class="chip err">${ic("alert")}Erro ao converter</span>`;
+  if (c.treatError) return `<span class="chip err" title="${esc(c.treatError)}">${ic("alert")}Erro ao tratar</span>`;
+  if (!c.reviewed) return `<span class="chip warn">${ic("clock")}Aguardando tratamento</span>`;
+  if (needsRender(c)) return `<span class="chip acc">${ic("check")}Corte confirmado, falta concluir</span>`;
+  return `<span class="chip ok">${ic("check")}Tratado${c.tfile ? " · " + cDur(c).toFixed(1) + " s" : ""}</span>`;
+}
+
+function varParts(v) {
+  const bits = String(v.label || "").split(" + ");
+  const nm = (id, fb) => { const c = state.clips.find(x => x.id === id); return (c ? c.name : fb || "").replace(/\.[^.]+$/, ""); };
+  return [["Gancho", v.hook, bits[0]], ["Corpo", v.body, bits[1]], ["CTA", v.cta, bits[2]]]
+    .map(([t, id, fb]) => `<div><span>${t}</span><span>${esc(nm(id, fb))}</span></div>`).join("");
+}
+
+let vfilter = "all", vq = "";
+function vMatches(v) {
+  if (vq && !String(v.label || "").toLowerCase().includes(vq)) return false;
+  const e = v.edit || {};
+  if (vfilter === "nocap") return !e.captions?.enabled;
+  if (vfilter === "edited") return !!(e.captions?.enabled || e.texts?.length || v.baseFile || v.cutInfo || v.parts);
+  return true;
+}
+
+// Fluxo guiado: etapa atual, texto do "próximo passo" e botão de gerar
+function renderFlow({ ready, total, readyClips, pendingClips, dirtyClips, treating, treated }) {
+  const okClips = (t) => state.clips.filter(c => c.type === t && c.status === "ready");
+  const hooks = ready("hook"), bodies = ready("body"), ctas = ready("cta");
+  let missing = 0;
+  if (treated) for (const h of okClips("hook")) for (const b of okClips("body")) for (const c of okClips("cta"))
+    if (!state.variations.some(v => v.hook === h.id && v.body === b.id && v.cta === c.id && v.status !== "error")) missing++;
+  const hasVars = state.variations.length > 0;
+  let stage, title, text;
+  if (uploads.length || state.clips.some(c => c.status === "processing")) { stage = 1; title = "Enviando e preparando os vídeos…"; text = "Cada vídeo é convertido para o formato vertical 1080×1920. Pode soltar mais vídeos enquanto isso."; }
+  else if (!readyClips.length) { stage = 1; title = "Comece subindo os vídeos"; text = "Arraste os ganchos, os corpos e os CTAs nas colunas abaixo. Cada combinação deles vira uma variação do anúncio."; }
+  else if (treating) { stage = 2; title = "Tratando os vídeos…"; text = "Aplicando os cortes e o volume. Leva só um instante."; }
+  else if (pendingClips.length) { stage = 2; title = `Trate os vídeos: ${pendingClips.length} ${plural(pendingClips.length, "pendente", "pendentes")}`; text = "Corte o começo e o fim de cada um e confirme. Em seguida o volume é equalizado entre todos."; }
+  else if (dirtyClips.length) { stage = 2; title = "Falta equalizar o volume"; text = "Deixe todos os vídeos no mesmo volume para qualquer combinação soar igual."; }
+  else if (missing) { stage = 3; title = hasVars ? "Há combinações novas para gerar" : "Tudo pronto para gerar"; text = "Cada combinação de gancho, corpo e CTA vira um vídeo pronto para editar."; }
+  else { stage = 4; title = "Escolha o que aplicar nas variações"; text = "Marque as variações, ligue as opções no painel e clique em Aplicar. Depois é só baixar."; }
+  setText($("#nextTitle"), title);
+  setText($("#nextText"), text);
+  setText($("#count"), treated && total ? `${hooks} ${plural(hooks, "gancho", "ganchos")} × ${bodies} ${plural(bodies, "corpo", "corpos")} × ${ctas} CTA${ctas === 1 ? "" : "s"} = ${total} ${plural(total, "combinação", "combinações")}` : "");
+  const g = $("#gen");
+  g.style.display = treated && missing ? "" : "none";
+  g.disabled = !(treated && missing);
+  const gh = ic("wand") + `Gerar ${missing || ""} ${plural(missing, "variação", "variações")}`;
+  if (g.dataset.sig !== gh) { g.innerHTML = gh; g.dataset.sig = gh; }
+  const n = state.variations.length;
+  const steps = [
+    ["Vídeos", readyClips.length ? `${readyClips.length} ${plural(readyClips.length, "vídeo", "vídeos")}` : "Suba os clipes"],
+    ["Tratar", treated ? "Tudo tratado" : pendingClips.length ? `${pendingClips.length} ${plural(pendingClips.length, "pendente", "pendentes")}` : dirtyClips.length ? "Falta equalizar" : "Corte e volume"],
+    ["Gerar", n ? `${n} ${plural(n, "variação", "variações")}` : treated && total ? `${total} ${plural(total, "combinação", "combinações")}` : "Combinar os vídeos"],
+    ["Editar e baixar", "Legenda, texto e volume"],
+  ];
+  const html = steps.map(([t, sub], i) => `<li class="step ${i + 1 < stage ? "done" : i + 1 === stage ? "cur" : ""}" data-step="${i + 1}"><span class="num">${i + 1 < stage ? ic("check") : i + 1}</span><span class="t"><b>${t}</b><span>${sub}</span></span></li>`).join("");
+  const st = $("#steps");
+  if (st.dataset.sig !== html) { st.innerHTML = html; st.dataset.sig = html; }
 }
 
 function render() {
@@ -429,16 +771,16 @@ function render() {
     tb.disabled = treating;
     tb.textContent = treating ? "Preparando vídeos…" : pendingClips.length ? `Tratar vídeos (${pendingClips.length} pendente${pendingClips.length>1?"s":""})` : hasErr ? "Tentar de novo" : "Equalizar e concluir";
   }
-  setText($("#count"), total && treated ? `${ready("hook")}×${ready("body")}×${ready("cta")} = ${total} combinações` : "");
-  $("#gen").disabled = !total || !treated;
+  renderFlow({ ready, total, readyClips, pendingClips, dirtyClips, treating, treated });
 
   // colunas: a estrutura é criada uma vez; só os cards mudam
   const cols = $("#cols");
   if (!cols.children.length) {
+    const LANE = { hook:"Os primeiros segundos do anúncio", body:"A explicação ou a prova", cta:"A chamada para a ação" };
     cols.innerHTML = Object.entries(TYPES).map(([t,label]) => `
-      <div class="col" data-col="${t}">
-        <h2><span>${label}</span><span class="cnt"></span></h2>
-        <div class="drop" data-type="${t}">Arraste vídeos aqui<br>ou clique pra escolher</div>
+      <div class="lane" data-col="${t}">
+        <div class="lane-head"><div><h3>${label}</h3><p>${LANE[t]}</p></div><span class="cnt"></span></div>
+        <div class="drop" data-type="${t}" role="button" tabindex="0">${ic("upload")}<b>Solte os vídeos aqui</b><span>ou clique para escolher</span></div>
         <div class="body"></div>
       </div>`).join("");
   }
@@ -450,17 +792,15 @@ function render() {
       ...uploads.filter(u => u.type === t).map(u => ({ key:"up"+u.id, html:upCard(u) })),
       ...clips.map(c => ({ key:c.id, html:`
         <div class="clip">
-          ${c.status==="ready" ? `<video src="/media/clips/${cFile(c)}#t=0.1" muted preload="metadata"></video>` : `<div style="width:48px;height:84px"></div>`}
-          <div class="n">${esc(c.name)}
-            ${c.status==="processing" || c.prog ? progBox("c"+c.id)
-              : c.status==="error" ? `<small>erro</small>`
-              : c.treatError ? `<small style="color:var(--err)" title="${esc(c.treatError)}">erro ao tratar</small>`
-              : !c.reviewed ? `<small class="amber">⏳ aguardando tratamento</small>`
-              : needsRender(c) ? `<small class="okc">✓ corte confirmado · falta concluir</small>`
-              : `<small class="okc">✓ tratado${c.tfile ? " · " + cDur(c).toFixed(1) + "s" : ""}</small>`}
+          ${c.status==="ready" ? `<video src="/media/clips/${cFile(c)}#t=0.1" muted preload="metadata"></video>` : `<div class="thumb"></div>`}
+          <div class="n">
+            <div class="nm" title="${esc(c.name)}">${esc(c.name)}</div>
+            ${clipState(c)}
           </div>
-          ${c.status==="ready" && c.reviewed && !c.prog ? `<button class="sm line" data-retreat="${c.id}" title="Cortar de novo / equalizar">Refazer</button>` : ""}
-          <button class="ghost" data-del-clip="${c.id}">✕</button>
+          <div class="ops">
+            ${c.status==="ready" && c.reviewed && !c.prog ? `<button class="icon" data-retreat="${c.id}" title="Refazer o corte e o volume">${ic("redo")}</button>` : ""}
+            <button class="icon danger" data-del-clip="${c.id}" title="Excluir vídeo">${ic("trash")}</button>
+          </div>
         </div>` })),
     ]);
   }
@@ -477,7 +817,7 @@ function render() {
   const PL = {destaque:"Destaque",classica:"Clássica",caixa:"Com fundo"};
   setText($("#refcount"), state.refs.length ? `(${state.refs.length})` : "");
   patchList($("#refs"), [
-    { key:"drop", html:`<div class="rc" style="justify-content:center"><div class="drop" data-ref="1">Arraste vídeos de referência<br>ou clique pra escolher</div></div>` },
+    { key:"drop", html:`<div class="drop tall" data-ref="1" role="button" tabindex="0">${ic("upload")}<b>Solte as referências aqui</b><span>ou clique para escolher</span></div>` },
     ...uploads.filter(u => u.type==="ref").map(u => ({ key:"up"+u.id, html:`<div class="rc">${upCard(u)}</div>` })),
     ...state.refs.map(r => {
       const st = r.style || {}, cp = st.captions || {};
@@ -489,10 +829,10 @@ function render() {
           : r.status==="error" ? `<small style="color:var(--err)">erro na análise</small>` : `<small>analisando…</small>`}
       </div>
       ${r.status==="ready" ? `<div class="chips">
-        <span class="chip"><i style="background:${esc(cp.color||"#FFE600")}"></i>${PL[cp.preset]||"Destaque"}</span>
+        <span class="chip"><i class="sw" style="background:${esc(cp.color||"#FFE600")}"></i>${PL[cp.preset]||"Destaque"}</span>
         <span class="chip">${esc(normFont(cp.font))}</span>
-        <span class="chip">cortar pausas: ${st.cut?.enabled ? "sim" : "não"}</span>
-        ${st.text?.content ? `<span class="chip" title="${esc(st.text.content)}">texto na tela ✓</span>` : ""}
+        <span class="chip">${ic("scissors")}pausas: ${st.cut?.enabled ? "corta" : "mantém"}</span>
+        ${st.text?.content ? `<span class="chip" title="${esc(st.text.content)}">${ic("type")}texto na tela</span>` : ""}
       </div>` : ""}
       <div class="acts">
         ${r.status==="ready" ? `<button class="sm" data-style="${r.id}">Ajustar estilo</button><button class="sm line" data-rename="${r.id}">Renomear</button>` : ""}
@@ -506,31 +846,41 @@ function render() {
   const anyReady = state.variations.some(v => v.status==="ready");
   $("#tools").style.display = anyReady ? "" : "none";
   $("#qbar").style.display = anyReady ? "" : "none";
-  patchList($("#vars"), state.variations.map(v => {
+  document.querySelector(".workbench").classList.toggle("with-panel", anyReady);
+  const shownVars = state.variations.filter(vMatches);
+  const emptyBox = $("#vempty");
+  emptyBox.style.display = shownVars.length ? "none" : "";
+  if (!shownVars.length) {
+    const filtered = state.variations.length > 0;
+    setText(emptyBox.querySelector("b"), filtered ? "Nenhuma variação encontrada" : "As variações aparecem aqui");
+    emptyBox.querySelector("p").innerHTML = filtered ? "Mude o filtro ou a busca para ver as outras." : "Depois de tratar os vídeos, clique em <b>Gerar variações</b>. Cada combinação de gancho, corpo e CTA vira um vídeo pronto para editar e baixar.";
+  }
+  patchList($("#vars"), shownVars.map(v => {
     const shown = v.capFile || v.baseFile || v.file;
     const capping = v.cap === "processing";
-    const ph = v.status==="error"?"erro ao gerar":v.status==="processing"?"gerando…":"na fila";
+    const ph = v.status==="error" ? "Erro ao gerar" : v.status==="processing" ? "Gerando…" : "Na fila";
     return { key:v.id, html:`
-    <div class="v">
-      ${v.status==="ready" ? `<input type="checkbox" class="sel" data-sel="${v.id}">` : ""}
+    <article class="v">
+      ${v.status==="ready" ? `<label class="pick" title="Selecionar"><input type="checkbox" class="sel" data-sel="${v.id}" aria-label="Selecionar variação"><span class="box">${ic("check")}</span></label>` : ""}
       ${v.status==="ready"
         ? `<video src="/media/output/${shown}" controls preload="metadata"></video>`
         : `<div class="ph">${ph}</div>`}
       ${capping ? progBox(v.id, v.id) : ""}
-      <div class="l">${esc(v.label)}</div>
-      <div class="row">
-        ${capping ? `<span class="badge">editando…</span>`
-          : v.cap==="error" ? `<span class="badge error" title="${esc(v.capError)}">erro na legenda</span>`
-          
-          : vTags(v) ? vTags(v)
-          : `<span class="badge ${v.status}">${v.status==="ready"?"pronto":v.status==="error"?"erro":v.status==="processing"?"gerando":"fila"}</span>`}
-        <span>
-          ${v.status==="ready" ? `<button class="ghost" style="color:var(--acc)" data-parts="${v.id}" title="Cortar e ajustar o volume de gancho, corpo e CTA">partes</button><button class="ghost" style="color:var(--acc)" data-edit="${v.id}">${v.capFile?"ajustar":"legenda"}</button>
-            <a class="dl" href="/media/output/${shown}" download="${esc(v.label)}.mp4">Baixar</a>` : ""}
-          <button class="ghost" data-del-var="${v.id}">✕</button>
-        </span>
+      <div class="v-body">
+        <div class="plist" title="${esc(v.label)}">${varParts(v)}</div>
+        <div class="chips">${capping ? `<span class="chip acc">Editando…</span>`
+          : v.cap==="error" ? `<span class="chip err" title="${esc(v.capError)}">${ic("alert")}Erro na edição</span>`
+          : vTags(v) || `<span class="chip ${v.status==="ready" ? "ok" : v.status==="error" ? "err" : ""}">${v.status==="ready" ? ic("check") + "Pronta" : v.status==="error" ? "Erro" : v.status==="processing" ? "Gerando" : "Na fila"}</span>`}</div>
       </div>
-    </div>` };
+      <div class="v-actions">
+        ${v.status==="ready" ? `
+          <button class="icon" data-parts="${v.id}" title="Partes: cortar e ajustar o volume de gancho, corpo e CTA">${ic("scissors")}</button>
+          <button class="icon" data-edit="${v.id}" title="${v.capFile ? "Ajustar legenda e texto" : "Legenda e texto"}">${ic("captions")}</button>
+          <a class="icon" href="/media/output/${shown}" download="${esc(v.label)}.mp4" title="Baixar o vídeo">${ic("download")}</a>` : ""}
+        <span class="sp"></span>
+        <button class="icon danger" data-del-var="${v.id}" title="Excluir variação">${ic("trash")}</button>
+      </div>
+    </article>` };
   }));
   // seleção fica fora do HTML dos cards, para marcar/desmarcar não recarregar o vídeo
   $("#vars").querySelectorAll(".v").forEach(el => {
@@ -558,7 +908,7 @@ function applyProgress() {
     const el = document.querySelector(`[data-prog="${key}"]`);
     if (!el) return;
     const pct = p?.pct ?? 0;
-    el.querySelector("i").style.width = pct + "%";
+    el.querySelector("i").style.transform = `scaleX(${pct / 100})`;
     el.querySelector(".pst").textContent = p?.stage || "Na fila";
     el.querySelector(".ppc").textContent = pct + "%";
   };
@@ -576,11 +926,11 @@ function applyProgress() {
   const pct = finished ? 100 : Math.min(99, Math.round((done * 100 + sum) / total));
   const hadErr = finished && [...batchIds].some(id => state.variations.find(v => v.id === id)?.cap === "error");
   g.style.display = "";
-  $("#gfill").style.width = pct + "%";
+  $("#gfill").style.transform = `scaleX(${pct / 100})`;
   $("#gpct").textContent = pct + "%";
   $("#gcancel").style.display = finished ? "none" : "";
   $("#gtxt").textContent = finished
-    ? (cancelFlag ? "Edição encerrada (você cancelou)" : hadErr ? "Concluído, mas alguns vídeos deram erro" : `Concluído ✓ ${total} vídeo${total>1?"s":""} editado${total>1?"s":""}`)
+    ? (cancelFlag ? "Edição encerrada (você cancelou)" : hadErr ? "Concluído, mas alguns vídeos deram erro" : `Concluído: ${total} vídeo${total>1?"s":""} editado${total>1?"s":""}`)
     : `Editando ${total} vídeo${total>1?"s":""} · ${done} de ${total} concluído${done===1?"":"s"}`;
   if (finished && !gHold) gHold = setTimeout(() => { batchIds.clear(); gHold = null; cancelFlag = false; g.style.display = "none"; }, hadErr ? 6000 : 2500);
   if (!finished && gHold) { clearTimeout(gHold); gHold = null; }
@@ -596,14 +946,34 @@ function updateSel() {
   document.querySelectorAll(".rmbtn").forEach(b => { b.disabled = !n; });
   const noCap = state.variations.filter(v => v.status==="ready" && v.cap!=="processing" && !v.edit?.captions?.enabled).length;
   $("#capall").disabled = !noCap;
-  $("#capall").textContent = noCap ? `Legendar todos (${noCap})` : "Legendar todos";
-  $("#selinfo").textContent = !n ? "Marque as variações que quer editar." : !any ? "Escolha o que fazer: cortar pausas, legenda, texto na tela e/ou equalizar volume." : "";
+  $("#capall").innerHTML = ic("captions") + (noCap ? `Legendar todos (${noCap})` : "Legendar todos");
+  const vis = state.variations.filter(v => v.status==="ready" && vMatches(v));
+  const allOn = vis.length > 0 && vis.every(v => sel.has(v.id));
+  $("#selall").textContent = allOn ? "Limpar seleção" : "Selecionar todas";
+  $("#selall").disabled = !vis.length;
+  $("#selinfo").textContent = !n ? "Marque as variações que quer editar." : !any ? `${n} selecionada${n>1?"s":""}. Ligue uma opção abaixo.` : `${n} selecionada${n>1?"s":""}.`;
 }
 $("#selall").onclick = () => {
-  const ready = state.variations.filter(v => v.status==="ready");
-  if (sel.size === ready.length) sel.clear(); else ready.forEach(v => sel.add(v.id));
+  const vis = state.variations.filter(v => v.status==="ready" && vMatches(v));
+  const allOn = vis.length > 0 && vis.every(v => sel.has(v.id));
+  vis.forEach(v => allOn ? sel.delete(v.id) : sel.add(v.id));
   render();
 };
+$("#vfilter").addEventListener("click", e => {
+  const b = e.target.closest("button[data-f]");
+  if (!b) return;
+  vfilter = b.dataset.f;
+  document.querySelectorAll("#vfilter button").forEach(x => x.classList.toggle("on", x === b));
+  render();
+});
+$("#vsearch").addEventListener("input", e => { vq = e.target.value.trim().toLowerCase(); render(); });
+$("#panelHead").addEventListener("click", () => { if (matchMedia("(max-width:1099px)").matches) $("#qbar").classList.toggle("open"); });
+$("#steps").addEventListener("click", e => {
+  const li = e.target.closest(".step");
+  if (!li) return;
+  const n = +li.dataset.step;
+  (n <= 2 ? $("#sec-clips") : n === 3 ? $("#next") : $("#sec-vars")).scrollIntoView({ behavior:"smooth", block:"start" });
+});
 document.addEventListener("change", e => {
   if (e.target.dataset.sel) { e.target.checked ? sel.add(e.target.dataset.sel) : sel.delete(e.target.dataset.sel); e.target.closest(".v").classList.toggle("picked", e.target.checked); updateSel(); }
 });
@@ -624,7 +994,7 @@ $("#savedefault").onclick = async () => {
   const { words, enabled, ...cap } = ed.captions;
   const r = await fetch("/api/defaults", { method:"PUT", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ captions:cap }) });
   const b = $("#savedefault");
-  if (r.ok) { state.defaults = await r.json(); b.textContent = "Salvo como padrão ✓"; } else b.textContent = "Erro ao salvar";
+  if (r.ok) { state.defaults = await r.json(); b.textContent = "Salvo como padrão"; } else b.textContent = "Erro ao salvar";
   setTimeout(() => { b.textContent = "Salvar como padrão"; }, 2200);
 };
 const syncTxtDur = () => { $("#q_txtdurbox").hidden = $("#q_txtall").checked; };
@@ -660,12 +1030,13 @@ $("#apply").onclick = async () => {
 let uploads = [], upSeq = 0, wantTreat = false;
 const upCard = (u) => `
   <div class="clip up" data-up="${u.id}">
-    <div class="ic">⬆</div>
-    <div class="n">${esc(u.name)}
-      <small class="up-t">${u.pct>=100 ? "processando…" : `enviando… ${u.pct}%`}</small>
-      <div class="pbar"><i style="width:${u.pct}%"></i></div>
+    <div class="ic">${ic("upload")}</div>
+    <div class="n">
+      <div class="nm" title="${esc(u.name)}">${esc(u.name)}</div>
+      <span class="up-t muted" style="font-size:12px">${u.pct>=100 ? "processando…" : `enviando… ${u.pct}%`}</span>
+      <div class="pbar"><i style="transform:scaleX(${u.pct / 100})"></i></div>
     </div>
-    <button class="ghost" data-cancel-up="${u.id}" title="Cancelar">✕</button>
+    <div class="ops"><button class="icon danger" data-cancel-up="${u.id}" title="Cancelar envio">${ic("x")}</button></div>
   </div>`;
 function uploadFile(url, file, type) {
   const u = { id: "u" + (++upSeq), type, name: file.name, pct: 0, xhr: new XMLHttpRequest() };
@@ -688,7 +1059,7 @@ function uploadFile(url, file, type) {
       const el = document.querySelector(`[data-up="${u.id}"]`);
       if (el) {
         el.querySelector(".up-t").textContent = u.pct >= 100 ? "processando…" : `enviando… ${u.pct}%`;
-        el.querySelector(".pbar i").style.width = u.pct + "%";
+        el.querySelector(".pbar i").style.transform = `scaleX(${u.pct / 100})`;
       }
     };
     u.xhr.onload = () => finish(u.xhr.status >= 400 ? `erro ${u.xhr.status}` : null);
@@ -745,6 +1116,9 @@ document.addEventListener("click", async (e) => {
       el.value = r.sRGBHex; el.dispatchEvent(new Event("input", { bubbles:true }));
     } catch {}
   }
+});
+document.addEventListener("keydown", e => {
+  if ((e.key === "Enter" || e.key === " ") && e.target.classList?.contains("drop")) { e.preventDefault(); e.target.click(); }
 });
 document.addEventListener("dragover", e => { const d=e.target.closest(".drop"); if(d){e.preventDefault(); d.classList.add("over");} });
 document.addEventListener("dragleave", e => e.target.closest?.(".drop")?.classList.remove("over"));
@@ -932,11 +1306,11 @@ function renderTrim() {
   const t = treat.trims[c.id] ||= { start: c.trim?.start || 0, end: c.trim?.end > 0 ? c.trim.end : dur };
   const last = treat.i === treat.list.length - 1;
   $("#tIdx").textContent = `Vídeo ${treat.i + 1} de ${treat.list.length}`;
-  $("#tDots").textContent = treat.list.map((_, k) => k < treat.i ? "●" : k === treat.i ? "◉" : "○").join(" ");
+  $("#tDots").innerHTML = treat.list.map((_, k) => `<span class="dot ${k < treat.i ? "done" : k === treat.i ? "cur" : ""}"></span>`).join("");
   $("#tName").textContent = `${TYPE_ONE[c.type]} · ${c.name}`;
   for (const id of ["rs", "re"]) { $("#" + id).max = dur; }
   $("#tBack").disabled = treat.i === 0;
-  $("#tOk").textContent = last ? "OK, finalizar cortes →" : "OK, próximo →";
+  $("#tOk").innerHTML = (last ? "OK, finalizar cortes" : "OK, próximo") + ic("arrow-right");
   const v = $("#pv");
   v.src = `/media/clips/${c.file}`;
   v.controls = true;
@@ -951,7 +1325,8 @@ function syncTrim(fromRange) {
   $("#rs").value = t.start; $("#re").value = t.end;
   const kept = t.end - t.start;
   const bad = kept < 0.3;
-  $("#tInfo").textContent = bad ? "⚠ o trecho precisa ter pelo menos 0,3 s" : `mantendo ${kept.toFixed(1)} s de ${c.duration.toFixed(1)} s`;
+  $("#tInfo").textContent = bad ? "O trecho precisa ter pelo menos 0,3 s" : `mantendo ${kept.toFixed(1)} s de ${c.duration.toFixed(1)} s`;
+  $("#tInfo").classList.toggle("is-warn", bad);
   $("#tOk").disabled = bad;
 }
 function setTrim(k, val, seek) {
@@ -1066,10 +1441,10 @@ function renderParts() {
     return `
     <div class="part" data-p="${i}">
       <div class="row"><span><b>${PART_NAMES[i]}</b> <span class="hint">${esc(c.name)} · ${cDur(c).toFixed(1)}s</span></span>
-        <button class="sm line" data-play="${i}">▶ Ouvir</button></div>
+        <button class="sm line" data-play="${i}">${ic("play","fill")}Ouvir</button></div>
       <div class="f">
-        <label class="fl">Início (s) <span class="inl"><input type="number" step="0.1" min="0" max="${cDur(c)}" data-k="start" value="${+p.start.toFixed(2)}" style="width:80px"><button class="sm line" data-here="start">aqui</button></span></label>
-        <label class="fl">Fim (s) <span class="inl"><input type="number" step="0.1" min="0" max="${cDur(c)}" data-k="end" value="${+p.end.toFixed(2)}" style="width:80px"><button class="sm line" data-here="end">aqui</button></span></label>
+        <label class="fl">Início (s) <span class="inl"><input type="number" step="0.1" min="0" max="${cDur(c)}" data-k="start" value="${+p.start.toFixed(2)}" style="width:80px"><button class="sm line" data-here="start" title="Usar a posição atual do vídeo como início" aria-label="Marcar início na posição atual">${ic("target")}</button></span></label>
+        <label class="fl">Fim (s) <span class="inl"><input type="number" step="0.1" min="0" max="${cDur(c)}" data-k="end" value="${+p.end.toFixed(2)}" style="width:80px"><button class="sm line" data-here="end" title="Usar a posição atual do vídeo como fim" aria-label="Marcar fim na posição atual">${ic("target")}</button></span></label>
         <label class="fl">Volume <span class="vol">${fmtDb(p.gainDb)}</span><input type="range" min="-30" max="20" step="0.5" data-k="gainDb" value="${p.gainDb}"></label>
         <label class="fl inl" style="flex-direction:row;align-items:center"><input type="checkbox" data-k="mute" ${p.mute ? "checked" : ""}> mudo</label>
       </div>
@@ -1081,7 +1456,8 @@ function renderParts() {
 function updatePartsInfo() {
   const total = ed.parts.reduce((a, p) => a + Math.max(0, p.end - p.start), 0);
   const bad = ed.parts.findIndex(p => p.end - p.start < 0.3);
-  $("#partsinfo").textContent = bad >= 0 ? `⚠ o trecho do ${PART_NAMES[bad]} está curto demais` : `duração total: ${total.toFixed(1)} s`;
+  $("#partsinfo").textContent = bad >= 0 ? `O trecho do ${PART_NAMES[bad]} está curto demais` : `duração total: ${total.toFixed(1)} s`;
+  $("#partsinfo").classList.toggle("is-warn", bad >= 0);
   $("#save").disabled = bad >= 0;
 }
 

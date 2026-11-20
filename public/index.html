@@ -287,6 +287,10 @@
   .suggest b { font-weight:600 }
   .suggest p { margin-top:2px; font-size:13px; color:var(--text-2) }
   .suggest .acts { margin-left:auto }
+  .sg-sides { display:flex; flex-wrap:wrap; gap:8px 22px; flex-basis:100% }
+  .sg-sides label { display:flex; align-items:center; gap:8px; font-weight:500; cursor:pointer }
+  .sg-sides label:has(input:disabled) { color:var(--text-3); cursor:default }
+  .sg-cfg { display:grid; grid-template-columns:1fr 1fr; gap:12px; flex-basis:100% }
   .suggest .switch { flex-basis:100%; font-weight:500; font-size:13px; color:var(--text-2) }
   .dots { display:inline-flex; gap:6px; align-items:center }
   .dot { width:9px; height:9px; border-radius:50%; border:1.5px solid var(--line-2) }
@@ -529,7 +533,17 @@
         <div class="suggest" id="tSuggest" hidden>
           <svg class="i"><use href="#i-wand"/></svg>
           <div class="sg-copy"><b>Sugestão pelo silêncio</b><p id="sgText"></p></div>
-          <div class="acts inl"><button class="sm" id="sgUse" disabled>Usar sugestão</button><button class="sm line" id="sgReset">Vídeo inteiro</button></div>
+          <div class="acts inl"><button class="sm" id="sgUse" disabled>Cortar os dois</button><button class="sm line" id="sgReset" disabled>Vídeo inteiro</button></div>
+          <div class="sg-sides">
+            <label><input type="checkbox" id="sgStart" disabled><span id="sgStartTxt">Começo</span></label>
+            <label><input type="checkbox" id="sgEnd" disabled><span id="sgEndTxt">Fim</span></label>
+          </div>
+          <div class="sg-cfg">
+            <label class="fl">Folga na fala
+              <select id="sgPad"><option value="short">Curta (0,2 s)</option><option value="normal">Normal (0,3 s)</option><option value="long">Longa (0,6 s)</option></select></label>
+            <label class="fl">Sensibilidade do silêncio
+              <select id="sgNoise"><option value="low">Corta menos</option><option value="normal">Normal</option><option value="high">Corta mais (ruído de fundo)</option></select></label>
+          </div>
           <label class="switch"><input type="checkbox" id="tAuto" checked><span class="track"></span>Já abrir cada vídeo com a sugestão aplicada</label>
         </div>
         <div class="inl" style="margin-top:12px"><button class="sm line" id="tPlay"><svg class="i fill"><use href="#i-play"/></svg>Ver só o trecho</button><span class="hint" id="tInfo" style="margin:0"></span></div>
@@ -1333,42 +1347,99 @@ function renderTrim() {
   loadSuggestion(c);
 }
 
-// Sugestão de corte pelo silêncio do começo e do fim (o servidor analisa o áudio do clipe)
+// Sugestão de corte pelo silêncio. O servidor acha onde termina o silêncio do começo e onde começa o do fim;
+// o painel calcula o corte com a folga escolhida e cada lado pode ser ligado ou desligado.
 const fmtS = (n) => n.toFixed(1).replace(".", ",") + " s";
-function sgCopy(sg) {
-  if (sg.none) return sg.reason === "sem áudio" ? "Este vídeo não tem fala para analisar. Corte manualmente se precisar." : "Não achei silêncio sobrando no começo nem no fim: o vídeo já está justo.";
-  const bits = [];
-  if (sg.cutStart > 0) bits.push(`${fmtS(sg.cutStart)} do começo`);
-  if (sg.cutEnd > 0) bits.push(`${fmtS(sg.cutEnd)} do fim`);
-  return `Tira ${bits.join(" e ")}, onde há só silêncio (deixei uma folga para não cortar a fala).`;
+const SG_PADS = { short:[0.1, 0.2], normal:[0.15, 0.3], long:[0.3, 0.6] };   // folga antes da 1ª fala / depois da última
+const SG_NOISE = { low:-45, normal:-35, high:-28 };
+let sgCfg = { pad:"normal", noise:"normal" };
+try { Object.assign(sgCfg, JSON.parse(localStorage.getItem("treatSg") || "{}")); } catch {}
+const saveSg = () => { try { localStorage.setItem("treatSg", JSON.stringify(sgCfg)); } catch {} };
+function calcSuggest(raw) {
+  if (!raw || raw.error) return { error:true };
+  if (raw.none) return raw;
+  const [ps, pe] = SG_PADS[sgCfg.pad] || SG_PADS.normal, full = raw.duration;
+  let start = Math.max(0, raw.lead - ps), end = Math.min(full, raw.trail + pe);
+  if (start < 0.2) start = 0;               // ganho pequeno demais: não vale cortar
+  if (full - end < 0.2) end = full;
+  if (!start && end >= full) return { none:true, reason:"justo", duration:full };
+  return { start, end, cutStart:start, cutEnd:full - end, duration:full };
 }
-function useSuggestion(c, sg) {
+async function fetchEdges(c) {
+  const key = c.id + ":" + sgCfg.noise;
+  if (treat.suggest[key]) return treat.suggest[key];
+  let raw;
+  try { raw = await (await fetch(`/api/clips/${c.id}/suggest-trim`, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ noise: SG_NOISE[sgCfg.noise] }) })).json(); }
+  catch { raw = { error:true }; }
+  if (treat) treat.suggest[key] = raw;
+  return raw;
+}
+const sgOn = (id) => $("#" + id).checked && !$("#" + id).disabled;
+function applySides(c, sg) {   // aplica no corte só os lados marcados
   const t = treat.trims[c.id];
-  t.start = sg.start;
-  t.end = sg.end > 0 ? sg.end : c.duration;
+  t.start = sgOn("sgStart") ? sg.start : 0;
+  t.end = sgOn("sgEnd") ? sg.end : c.duration;
   syncTrim();
   const v = $("#pv"); v.pause(); v.currentTime = t.start;
 }
-async function loadSuggestion(c) {
-  $("#tSuggest").hidden = false;
-  $("#sgUse").disabled = true;
-  $("#sgText").textContent = "Analisando o silêncio do vídeo…";
-  let sg = treat.suggest[c.id];
-  if (!sg) {
-    try { sg = await (await fetch(`/api/clips/${c.id}/suggest-trim`, { method:"POST" })).json(); }
-    catch { sg = { none: true, reason: "erro" }; }
-    if (treat) treat.suggest[c.id] = sg;
-  }
-  if (!treat || treat.step !== "trim" || treat.list[treat.i] !== c.id) return;   // já mudou de vídeo
-  $("#sgText").textContent = sg.error ? "Não consegui analisar este vídeo." : sgCopy(sg);
-  $("#sgUse").disabled = !!(sg.none || sg.error);
-  if (!sg.none && !sg.error && $("#tAuto").checked && !c.reviewed && !treat.touched[c.id]) {
-    useSuggestion(c, sg);
-    $("#sgText").textContent = "Sugestão aplicada. " + sgCopy(sg);
-  }
+function drawSuggest(sg) {
+  const ok = !sg.none && !sg.error;
+  const hasS = ok && sg.cutStart > 0, hasE = ok && sg.cutEnd > 0;
+  $("#sgStart").disabled = !hasS; $("#sgEnd").disabled = !hasE;
+  $("#sgUse").disabled = $("#sgReset").disabled = !(hasS || hasE);
+  $("#sgStartTxt").textContent = hasS ? `Tirar ${fmtS(sg.cutStart)} do começo` : "Começo: nada a tirar";
+  $("#sgEndTxt").textContent = hasE ? `Tirar ${fmtS(sg.cutEnd)} do fim` : "Fim: nada a tirar";
+  $("#sgText").textContent = sg.error ? "Não consegui analisar este vídeo."
+    : sg.none ? (sg.reason === "sem áudio" ? "Este vídeo não tem fala para analisar. Corte manualmente se precisar." : "Não achei silêncio sobrando. Se há barulho de fundo, tente a sensibilidade \"Corta mais\".")
+    : "Silêncio encontrado. Marque o que quer cortar; a folga deixa uma margem para não cortar a fala.";
 }
-$("#sgUse").onclick = () => { const c = getClip(treat.list[treat.i]), sg = treat.suggest[c.id]; if (sg && !sg.none) { useSuggestion(c, sg); treat.touched[c.id] = true; } };
-$("#sgReset").onclick = () => { const c = getClip(treat.list[treat.i]), t = treat.trims[c.id]; t.start = 0; t.end = c.duration; treat.touched[c.id] = true; syncTrim(); };
+async function loadSuggestion(c, { keep } = {}) {
+  $("#tSuggest").hidden = false;
+  const wasS = sgOn("sgStart"), wasE = sgOn("sgEnd");   // o que estava cortado pela sugestão antes de recalcular
+  $("#sgText").textContent = "Analisando o silêncio do vídeo…";
+  $("#sgStart").disabled = $("#sgEnd").disabled = $("#sgUse").disabled = $("#sgReset").disabled = true;
+  const raw = await fetchEdges(c);
+  if (!treat || treat.step !== "trim" || treat.list[treat.i] !== c.id) return;   // já mudou de vídeo
+  const sg = calcSuggest(raw);
+  treat.sg = sg;
+  drawSuggest(sg);
+  if (sg.none || sg.error) {
+    $("#sgStart").checked = $("#sgEnd").checked = false;
+    if (keep && (wasS || wasE)) {   // a sugestão deixou de existir: o corte que vinha dela volta ao vídeo inteiro
+      const t = treat.trims[c.id];
+      if (wasS) t.start = 0;
+      if (wasE) t.end = c.duration;
+      syncTrim();
+    }
+    return;
+  }
+  if (keep) { if (sgOn("sgStart") || sgOn("sgEnd")) applySides(c, sg); return; }   // mudou folga/sensibilidade: reaplica os lados marcados
+  const auto = $("#tAuto").checked && !c.reviewed && !treat.touched[c.id];
+  $("#sgStart").checked = auto && !$("#sgStart").disabled;
+  $("#sgEnd").checked = auto && !$("#sgEnd").disabled;
+  if (auto) { applySides(c, sg); $("#sgText").textContent = "Sugestão aplicada. Desmarque o lado que não quer cortar."; }
+}
+const sgClip = () => treat?.step === "trim" ? getClip(treat.list[treat.i]) : null;
+for (const id of ["sgStart", "sgEnd"]) $("#" + id).addEventListener("change", () => {
+  const c = sgClip();
+  if (c && treat.sg && !treat.sg.none && !treat.sg.error) { treat.touched[c.id] = true; applySides(c, treat.sg); }
+});
+$("#sgUse").onclick = () => {
+  const c = sgClip();
+  if (!c || !treat.sg) return;
+  $("#sgStart").checked = !$("#sgStart").disabled; $("#sgEnd").checked = !$("#sgEnd").disabled;
+  treat.touched[c.id] = true; applySides(c, treat.sg);
+};
+$("#sgReset").onclick = () => {
+  const c = sgClip();
+  if (!c) return;
+  $("#sgStart").checked = $("#sgEnd").checked = false;
+  treat.touched[c.id] = true;
+  const t = treat.trims[c.id]; t.start = 0; t.end = c.duration; syncTrim();
+};
+$("#sgPad").value = sgCfg.pad; $("#sgNoise").value = sgCfg.noise;
+$("#sgPad").addEventListener("change", e => { sgCfg.pad = e.target.value; saveSg(); const c = sgClip(); if (c) loadSuggestion(c, { keep:true }); });
+$("#sgNoise").addEventListener("change", e => { sgCfg.noise = e.target.value; saveSg(); const c = sgClip(); if (c) loadSuggestion(c, { keep:true }); });
 try { $("#tAuto").checked = localStorage.getItem("treatAuto") !== "0"; } catch {}
 $("#tAuto").addEventListener("change", e => { try { localStorage.setItem("treatAuto", e.target.checked ? "1" : "0"); } catch {} });
 

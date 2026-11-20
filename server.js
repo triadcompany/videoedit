@@ -627,32 +627,29 @@ app.delete("/api/clips/:id", (req, res) => {
   res.sendStatus(204);
 });
 
-// ---- tratamento: sugere o corte do começo e do fim pelo silêncio ----
-// Acha o silêncio que sobra no início e no fim do áudio e deixa uma folga para não cortar a fala.
-async function suggestTrim(c) {
+// ---- tratamento: acha o silêncio do começo e do fim (a sugestão é calculada no painel, com a folga escolhida) ----
+const NOISE_LEVELS = [-45, -35, -28]; // corta menos / normal / corta mais (tolera ruído de fundo)
+async function silenceEdges(c, noise) {
   const file = path.join(DIRS.clips, c.file);
   const full = c.duration || (await duration(file));
-  const r = await runAll(ffmpegPath, ["-i", file, "-vn", "-af", "silencedetect=noise=-35dB:d=0.3", "-f", "null", "-"]);
+  const r = await runAll(ffmpegPath, ["-i", file, "-vn", "-af", `silencedetect=noise=${noise}dB:d=0.3`, "-f", "null", "-"]);
   const starts = [...r.err.matchAll(/silence_start: (-?[\d.]+)/g)].map((m) => +m[1]);
   const ends = [...r.err.matchAll(/silence_end: ([\d.]+)/g)].map((m) => +m[1]);
   const sil = starts.map((st, i) => [Math.max(0, st), ends[i] ?? full]);
   const first = sil[0], last = sil[sil.length - 1];
-  const lead = first && first[0] <= 0.1 ? first[1] : 0;          // silêncio colado no começo
-  const trail = last && last[1] >= full - 0.1 ? last[0] : full;   // silêncio colado no fim
+  const lead = first && first[0] <= 0.1 ? first[1] : 0;          // até onde vai o silêncio colado no começo
+  const trail = last && last[1] >= full - 0.1 ? last[0] : full;   // onde começa o silêncio colado no fim
   if (lead >= full - 0.3 || trail <= 0.3 || trail - lead < 0.5) return { none: true, reason: "sem áudio", duration: full };
-  let start = Math.max(0, lead - 0.15);       // folga antes da primeira fala
-  let end = Math.min(full, trail + 0.3);      // folga depois da última fala
-  if (start < 0.2) start = 0;                 // ganho pequeno demais: não vale cortar
-  if (full - end < 0.2) end = 0;              // 0 = até o fim
-  if (!start && !end) return { none: true, reason: "justo", duration: full };
-  return { start: +start.toFixed(2), end: +end.toFixed(2), cutStart: +start.toFixed(2), cutEnd: end ? +(full - end).toFixed(2) : 0, duration: full };
+  return { lead: +lead.toFixed(2), trail: +trail.toFixed(2), duration: full };
 }
 app.post("/api/clips/:id/suggest-trim", async (req, res) => {
   const c = db.clips.find((x) => x.id === req.params.id && x.status === "ready");
   if (!c) return res.sendStatus(404);
+  const noise = NOISE_LEVELS.includes(+req.body?.noise) ? +req.body.noise : -35;
   try {
-    if (!c.suggest) { c.suggest = await suggestTrim(c); save(db); }   // o arquivo original não muda: guarda o resultado
-    res.json(c.suggest);
+    c.edges ||= {};
+    if (!c.edges[noise]) { c.edges[noise] = await silenceEdges(c, noise); save(db); }   // o original não muda: guarda o resultado
+    res.json(c.edges[noise]);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

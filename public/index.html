@@ -133,6 +133,12 @@
   .gbar { background:var(--card); border:1px solid var(--acc); border-radius:12px; padding:12px 14px; margin:0 0 12px }
   .gbar .gl { display:flex; justify-content:space-between; gap:12px; margin-bottom:8px; font-size:14px }
   .gbar .pbar2 { height:10px }
+  .ed.m-parts .blk:not(.only-parts) { display:none }
+  .ed:not(.m-parts) .only-parts { display:none }
+  .part { background:#0f1115; border:1px solid var(--line); border-radius:10px; padding:12px; margin-top:10px }
+  .part.playing { border-color:var(--acc) }
+  .part .vol { color:var(--txt); font-variant-numeric:tabular-nums; margin-left:6px }
+  .part .eqnote { color:var(--acc); margin-top:6px }
   .pbar { height:5px; background:var(--line); border-radius:99px; overflow:hidden; margin-top:6px }
   .pbar i { display:block; height:100%; width:0; background:var(--acc); transition:width .2s }
   .up { border-style:dashed; border-color:var(--acc) }
@@ -183,6 +189,7 @@
       <label class="q"><input type="checkbox" id="q_txt"> Texto na tela <input type="text" id="q_txtv" placeholder="Digite o texto" maxlength="200"></label>
       <label class="q" title="Deixa o texto na tela do começo ao fim do vídeo"><input type="checkbox" id="q_txtall" checked> durante o vídeo todo</label>
       <label class="q" id="q_txtdurbox" hidden>por <input type="number" id="q_txtdur" value="3" min="0.5" max="120" step="0.5"> s</label>
+      <label class="q" title="Deixa gancho, corpo e CTA no mesmo volume de som"><input type="checkbox" id="q_eq"> Equalizar volume das partes</label>
       <label class="q">Estilo <select id="q_ref"><option value="">padrão</option></select></label>
       <button id="apply" disabled>Aplicar nos selecionados</button>
       <button class="sm line" id="more" disabled title="Fonte, cor, tamanho, posição e tempo">Mais opções…</button>
@@ -191,6 +198,7 @@
         <button class="sm line rmbtn" data-rm="captions" disabled>Tirar legenda</button>
         <button class="sm line rmbtn" data-rm="texts" disabled>Tirar texto</button>
         <button class="sm line rmbtn" data-rm="cut" disabled>Tirar corte de pausas</button>
+        <button class="sm line rmbtn" data-rm="parts" disabled>Tirar ajustes de partes</button>
         <button class="sm line rmbtn" data-rm="all" disabled>Voltar ao original</button>
       </div>
     </div>
@@ -212,6 +220,19 @@
           <button class="line" id="cancel">Cancelar</button>
           <button id="save">Salvar e renderizar</button>
         </div>
+      </div>
+
+      <div class="blk only-parts">
+        <h3>Partes do vídeo</h3>
+        <div class="hint" style="margin:0 0 4px">Escolha o trecho (início e fim) e o volume de cada parte. Use <b>▶ Ouvir</b> para testar o som e <b>aqui</b> para pegar o ponto exato do vídeo.</div>
+        <div id="partsList"></div>
+        <div class="inl" style="margin-top:12px">
+          <button class="sm" id="eqparts" title="Deixa gancho, corpo e CTA no mesmo volume (-16 LUFS)">Equalizar volume das partes</button>
+          <button class="sm line" id="playall">▶ Ouvir tudo</button>
+          <button class="sm line" id="resetparts">Restaurar padrão</button>
+          <span class="hint" id="partsinfo" style="margin:0"></span>
+        </div>
+        <div class="hint">Se este vídeo já tem corte de pausas e legenda, eles são refeitos em cima das novas partes (a legenda é transcrita de novo se o tempo mudar).</div>
       </div>
 
       <div class="blk only-batch">
@@ -352,6 +373,7 @@ function vTags(v) {
   const e = v.edit || {}, t = [];
   if (e.captions?.enabled) t.push("✎ legenda");
   if (e.texts?.length) t.push("T texto");
+  if (v.parts) t.push("🎚 partes");
   if (v.baseFile) t.push(`✂ −${v.cutInfo?.removed ?? ""}s`.replace("−s", "cortado"));
   else if (v.cutInfo) t.push(`✂ sem pausas >${v.cutInfo.minPause}s`);
   return t.length ? `<span class="tag">${t.join(" · ")}</span>` : "";
@@ -450,7 +472,7 @@ function render() {
           : vTags(v) ? vTags(v)
           : `<span class="badge ${v.status}">${v.status==="ready"?"pronto":v.status==="error"?"erro":v.status==="processing"?"gerando":"fila"}</span>`}
         <span>
-          ${v.status==="ready" ? `<button class="ghost" style="color:var(--acc)" data-edit="${v.id}">${v.capFile?"ajustar":"legenda"}</button>
+          ${v.status==="ready" ? `<button class="ghost" style="color:var(--acc)" data-parts="${v.id}" title="Cortar e ajustar o volume de gancho, corpo e CTA">partes</button><button class="ghost" style="color:var(--acc)" data-edit="${v.id}">${v.capFile?"ajustar":"legenda"}</button>
             <a class="dl" href="/media/output/${shown}" download="${esc(v.label)}.mp4">Baixar</a>` : ""}
           <button class="ghost" data-del-var="${v.id}">✕</button>
         </span>
@@ -510,7 +532,7 @@ function applyProgress() {
 const sel = new Set();
 function updateSel() {
   const n = sel.size;
-  const any = $("#q_cut").checked || $("#q_cap").checked || $("#q_txt").checked;
+  const any = $("#q_cut").checked || $("#q_cap").checked || $("#q_txt").checked || $("#q_eq").checked;
   $("#apply").disabled = !n || !any;
   $("#apply").textContent = n ? `Aplicar em ${n} selecionado${n>1?"s":""}` : "Aplicar nos selecionados";
   $("#more").disabled = !n;
@@ -518,7 +540,7 @@ function updateSel() {
   const noCap = state.variations.filter(v => v.status==="ready" && v.cap!=="processing" && !v.edit?.captions?.enabled).length;
   $("#capall").disabled = !noCap;
   $("#capall").textContent = noCap ? `Legendar todos (${noCap})` : "Legendar todos";
-  $("#selinfo").textContent = !n ? "Marque as variações que quer editar." : !any ? "Escolha o que fazer: cortar pausas, legenda e/ou texto na tela." : "";
+  $("#selinfo").textContent = !n ? "Marque as variações que quer editar." : !any ? "Escolha o que fazer: cortar pausas, legenda, texto na tela e/ou equalizar volume." : "";
 }
 $("#selall").onclick = () => {
   const ready = state.variations.filter(v => v.status==="ready");
@@ -552,17 +574,17 @@ const syncTxtDur = () => { $("#q_txtdurbox").hidden = $("#q_txtall").checked; };
 $("#q_txtall").addEventListener("change", syncTxtDur);
 $("#qbar").addEventListener("input", () => { updateSel(); saveQuick(); });
 $("#qbar").addEventListener("change", () => { updateSel(); saveQuick(); });
-const saveQuick = () => { try { localStorage.setItem("quick", JSON.stringify({ cut:$("#q_cut").checked, sec:$("#q_cutsec").value, cap:$("#q_cap").checked, lang:$("#q_lang").value, txt:$("#q_txt").checked, txtall:$("#q_txtall").checked, txtdur:$("#q_txtdur").value })); } catch {} };
+const saveQuick = () => { try { localStorage.setItem("quick", JSON.stringify({ cut:$("#q_cut").checked, sec:$("#q_cutsec").value, cap:$("#q_cap").checked, lang:$("#q_lang").value, txt:$("#q_txt").checked, txtall:$("#q_txtall").checked, txtdur:$("#q_txtdur").value, eq:$("#q_eq").checked })); } catch {} };
 try {
   const q = JSON.parse(localStorage.getItem("quick") || "null");
-  if (q) { $("#q_cut").checked = !!q.cut; if (q.sec) $("#q_cutsec").value = q.sec; $("#q_cap").checked = !!q.cap; if (q.lang) $("#q_lang").value = q.lang; $("#q_txt").checked = !!q.txt; if (q.txtall !== undefined) $("#q_txtall").checked = !!q.txtall; if (q.txtdur) $("#q_txtdur").value = q.txtdur; }
+  if (q) { $("#q_cut").checked = !!q.cut; if (q.sec) $("#q_cutsec").value = q.sec; $("#q_cap").checked = !!q.cap; if (q.lang) $("#q_lang").value = q.lang; $("#q_txt").checked = !!q.txt; if (q.txtall !== undefined) $("#q_txtall").checked = !!q.txtall; if (q.txtdur) $("#q_txtdur").value = q.txtdur; $("#q_eq").checked = !!q.eq; }
 } catch {}
 syncTxtDur();
 
 $("#apply").onclick = async () => {
   const refSt = state.refs.find(r => r.id === $("#q_ref").value)?.style;
   const base = mergeStyle(refSt);   // estilo da referência escolhida ou o padrão
-  const ops = { ids:[...sel], language:$("#q_lang").value, captions:null, cut:null, text:null };
+  const ops = { ids:[...sel], language:$("#q_lang").value, captions:null, cut:null, text:null, equalize: $("#q_eq").checked };
   if ($("#q_cut").checked) ops.cut = { enabled:true, minPause: Math.max(0.5, +$("#q_cutsec").value || 2), keep:0.1 };
   if ($("#q_cap").checked) { const { words, enabled, ...cap } = base.captions; ops.captions = cap; }
   if ($("#q_txt").checked) {
@@ -635,7 +657,7 @@ document.addEventListener("click", async (e) => {
   if (e.target.dataset.cancelUp) uploads.find(u => u.id === e.target.dataset.cancelUp)?.xhr.abort();
   if (e.target.dataset.rm) {
     const what = e.target.dataset.rm;
-    const names = { captions:"a legenda", texts:"o texto na tela", cut:"o corte de pausas", all:"TODAS as edições (volta ao vídeo original)" };
+    const names = { captions:"a legenda", texts:"o texto na tela", cut:"o corte de pausas", parts:"os ajustes de partes (corte e volume)", all:"TODAS as edições (volta ao vídeo original)" };
     if (!sel.size) return;
     if (!confirm(`Tirar ${names[what]} de ${sel.size} vídeo${sel.size>1?"s":""}?`)) return;
     const r = await fetch("/api/variations/remove", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ ids:[...sel], what:[what], language:$("#q_lang").value }) });
@@ -644,6 +666,7 @@ document.addEventListener("click", async (e) => {
   }
   if (e.target.dataset.cancel) cancelJobs([e.target.dataset.cancel]);
   if (e.target.dataset.edit) openEditor(e.target.dataset.edit);
+  if (e.target.dataset.parts) openParts(e.target.dataset.parts);
   if (e.target.dataset.style) openStyle(e.target.dataset.style);
   if (e.target.dataset.delRef && confirm("Excluir esta referência?")) { await fetch(`/api/refs/${e.target.dataset.delRef}`, {method:"DELETE"}); refresh(); }
   if (e.target.dataset.rename) {
@@ -810,6 +833,128 @@ function openDefault() {
   document.body.style.overflow = "hidden";
 }
 
+/* ================= PARTES: corte e volume de gancho, corpo e CTA ================= */
+const PART_NAMES = ["Gancho", "Corpo", "CTA"];
+let partPlay = null, audioCtx = null, gainNode = null;
+const fmtDb = (d) => (d > 0 ? "+" : d < 0 ? "−" : "") + Math.abs(d).toFixed(1) + " dB";
+const gainFor = (p) => p.mute ? 0 : Math.pow(10, (p.gainDb || 0) / 20);
+
+function serverParts() {   // fim igual ao fim do clipe = 0 (sem corte)
+  return ed.parts.map((p, i) => ({ start: +(p.start || 0).toFixed(2), end: p.end >= (ed.clips[i]?.duration || 0) - 0.05 ? 0 : +p.end.toFixed(2), gainDb: p.gainDb || 0, mute: !!p.mute }));
+}
+
+function openParts(id) {
+  mode = "parts";
+  $("#edbox").className = "ed m-parts";
+  cur = state.variations.find(v => v.id === id);
+  const clips = [cur.hook, cur.body, cur.cta].map(cid => state.clips.find(c => c.id === cid));
+  if (clips.some(c => !c)) return alert("Um dos clipes originais desse vídeo foi excluído, então não dá para editar as partes.");
+  const old = cur.parts || [0,1,2].map(() => ({}));
+  ed = { clips, notes: ["", "", ""], parts: clips.map((c, i) => ({ start: old[i].start || 0, end: old[i].end > 0 ? old[i].end : c.duration, gainDb: old[i].gainDb || 0, mute: !!old[i].mute })) };
+  $("#save").textContent = "Aplicar nas partes";
+  $("#edtitle").textContent = "Partes: " + cur.label;
+  const v = $("#pv"); v.muted = false; v.removeAttribute("src"); $("#ov").innerHTML = "";
+  renderParts(); updatePartsInfo();
+  $("#modal").classList.add("open");
+  document.body.style.overflow = "hidden";
+}
+
+function renderParts() {
+  $("#partsList").innerHTML = ed.parts.map((p, i) => {
+    const c = ed.clips[i];
+    return `
+    <div class="part" data-p="${i}">
+      <div class="row"><span><b>${PART_NAMES[i]}</b> <span class="hint">${esc(c.name)} · ${c.duration.toFixed(1)}s</span></span>
+        <button class="sm line" data-play="${i}">▶ Ouvir</button></div>
+      <div class="f">
+        <label class="fl">Início (s) <span class="inl"><input type="number" step="0.1" min="0" max="${c.duration}" data-k="start" value="${+p.start.toFixed(2)}" style="width:80px"><button class="sm line" data-here="start">aqui</button></span></label>
+        <label class="fl">Fim (s) <span class="inl"><input type="number" step="0.1" min="0" max="${c.duration}" data-k="end" value="${+p.end.toFixed(2)}" style="width:80px"><button class="sm line" data-here="end">aqui</button></span></label>
+        <label class="fl">Volume <span class="vol">${fmtDb(p.gainDb)}</span><input type="range" min="-30" max="20" step="0.5" data-k="gainDb" value="${p.gainDb}"></label>
+        <label class="fl inl" style="flex-direction:row;align-items:center"><input type="checkbox" data-k="mute" ${p.mute ? "checked" : ""}> mudo</label>
+      </div>
+      <div class="hint eqnote">${esc(ed.notes[i])}</div>
+    </div>`;
+  }).join("");
+}
+
+function updatePartsInfo() {
+  const total = ed.parts.reduce((a, p) => a + Math.max(0, p.end - p.start), 0);
+  const bad = ed.parts.findIndex(p => p.end - p.start < 0.3);
+  $("#partsinfo").textContent = bad >= 0 ? `⚠ o trecho do ${PART_NAMES[bad]} está curto demais` : `duração total: ${total.toFixed(1)} s`;
+  $("#save").disabled = bad >= 0;
+}
+
+function ensureAudio() {   // WebAudio permite ouvir volume acima de 100% na prévia
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const src = audioCtx.createMediaElementSource($("#pv"));
+  gainNode = audioCtx.createGain();
+  src.connect(gainNode).connect(audioCtx.destination);
+}
+
+function playPart(i, chain = false) {
+  ensureAudio();
+  audioCtx.resume();
+  const v = $("#pv"), c = ed.clips[i], p = ed.parts[i];
+  partPlay = { i, chain };
+  document.querySelectorAll(".part").forEach(el => el.classList.toggle("playing", +el.dataset.p === i));
+  const target = `/media/clips/${c.file}`;
+  const go = () => { v.currentTime = p.start || 0; gainNode.gain.value = gainFor(p); v.play().catch(() => {}); };
+  if (!v.src.endsWith(target)) { v.src = target; v.addEventListener("loadedmetadata", go, { once:true }); v.load(); } else go();
+}
+$("#pv").addEventListener("timeupdate", () => {
+  if (mode !== "parts" || !partPlay) return;
+  const v = $("#pv"), p = ed.parts[partPlay.i];
+  if (v.currentTime >= (p.end || v.duration) - 0.04) {
+    if (partPlay.chain && partPlay.i < 2) playPart(partPlay.i + 1, true);
+    else { v.pause(); partPlay = null; document.querySelectorAll(".part").forEach(el => el.classList.remove("playing")); }
+  }
+});
+
+$("#partsList").addEventListener("input", e => {
+  const row = e.target.closest(".part"), k = e.target.dataset.k;
+  if (!row || !k || mode !== "parts") return;
+  const i = +row.dataset.p, p = ed.parts[i];
+  if (k === "mute") p.mute = e.target.checked; else p[k] = +e.target.value;
+  if (k === "gainDb") row.querySelector(".vol").textContent = fmtDb(p.gainDb);
+  if (gainNode && partPlay?.i === i) gainNode.gain.value = gainFor(p);
+  updatePartsInfo();
+});
+$("#partsList").addEventListener("click", e => {
+  const row = e.target.closest(".part");
+  if (!row) return;
+  const i = +row.dataset.p, p = ed.parts[i];
+  if (e.target.dataset.play !== undefined) playPart(i);
+  if (e.target.dataset.here) {
+    const t = +$("#pv").currentTime.toFixed(1);
+    p[e.target.dataset.here] = t;
+    row.querySelector(`[data-k="${e.target.dataset.here}"]`).value = t;
+    updatePartsInfo();
+  }
+});
+$("#playall").onclick = () => playPart(0, true);
+$("#resetparts").onclick = () => {
+  ed.parts = ed.clips.map(c => ({ start: 0, end: c.duration, gainDb: 0, mute: false }));
+  ed.notes = ["", "", ""];
+  renderParts(); updatePartsInfo();
+};
+$("#eqparts").onclick = async () => {
+  const b = $("#eqparts"), info = $("#partsinfo");
+  b.disabled = true; info.textContent = "medindo o volume de cada parte…";
+  try {
+    const r = await fetch(`/api/variations/${cur.id}/loudness`, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ parts: serverParts() }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || "falha");
+    j.parts.forEach((m, i) => {
+      ed.parts[i].gainDb = m.gainDb;
+      ed.notes[i] = m.silent ? "Esta parte não tem áudio: volume mantido." : `Volume original ${m.lufs.toFixed(1)} LUFS → ajuste ${fmtDb(m.gainDb)} (alvo ${j.target} LUFS)`;
+    });
+    renderParts(); updatePartsInfo();
+    info.textContent = "equalizado: confira e clique em Aplicar nas partes.";
+  } catch (err) { info.textContent = "erro: " + err.message; }
+  b.disabled = false;
+};
+
 function openStyle(id) {
   mode = "style";
   $("#edbox").className = "ed batch m-style";
@@ -831,6 +976,8 @@ function openStyle(id) {
   document.body.style.overflow = "hidden";
 }
 function closeEditor() {
+  partPlay = null;
+  $("#save").disabled = false;
   $("#modal").classList.remove("open");
   document.body.style.overflow = "";
   $("#pv").pause();
@@ -941,7 +1088,7 @@ function groupWords(words, n) {
   return g;
 }
 function paint() {
-  const ov = $("#ov"); if (!ov || !ed) return;
+  const ov = $("#ov"); if (!ov || !ed || mode === "parts") return;
   const scale = $(".stage").clientWidth / 1080;
   const style = mode === "style" || mode === "default";
   const t = style ? $("#pv").currentTime % 4 : $("#pv").currentTime;
@@ -979,11 +1126,14 @@ window.addEventListener("resize", paint);
 
 $("#save").onclick = async () => {
   $("#save").disabled = true;
-  const { words, enabled, ...cap } = ed.captions;
+  const { words, enabled, ...cap } = ed.captions || {};
   const json = { method:"POST", headers:{"Content-Type":"application/json"} };
   if (mode === "batch") {
     const r = await fetch("/api/variations/apply", { ...json,
       body: JSON.stringify({ ids:[...sel], language:$("#lang").value, captions: enabled ? cap : null, cut: ed.cut.enabled ? ed.cut : null, text: ed.text.content.trim() ? ed.text : null }) });
+    if (!r.ok) { alert((await r.json()).error); $("#save").disabled = false; return; }
+  } else if (mode === "parts") {
+    const r = await fetch("/api/variations/apply", { ...json, body: JSON.stringify({ ids:[cur.id], language:$("#q_lang").value, parts: serverParts() }) });
     if (!r.ok) { alert((await r.json()).error); $("#save").disabled = false; return; }
   } else if (mode === "default") {
     const r = await fetch("/api/defaults", { ...json, method:"PUT", body: JSON.stringify({ captions:cap }) });

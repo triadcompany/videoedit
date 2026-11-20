@@ -80,7 +80,7 @@ function queueVariationJob(v, fn) {
     if (job.cancelled) { if (jobs.get(v.id) === job) jobs.delete(v.id); return; }
     job.started = true;
     currentJob = job;
-    const snap = { baseFile: v.baseFile ?? null, capFile: v.capFile ?? null, cutInfo: v.cutInfo, edit: v.edit ? structuredClone(v.edit) : v.edit };
+    const snap = { file: v.file, parts: v.parts ? structuredClone(v.parts) : undefined, baseFile: v.baseFile ?? null, capFile: v.capFile ?? null, cutInfo: v.cutInfo, edit: v.edit ? structuredClone(v.edit) : v.edit };
     try {
       await fn();
     } catch (e) {
@@ -90,6 +90,8 @@ function queueVariationJob(v, fn) {
       if (job.cancelled || v.cap === "error") {
         // volta ao estado de antes e apaga o que este trabalho criou pela metade
         for (const f of job.files) fs.rmSync(path.join(DIRS.out, f), { force: true });
+        v.file = snap.file;
+        if (snap.parts === undefined) delete v.parts; else v.parts = snap.parts;
         v.baseFile = snap.baseFile;
         v.capFile = snap.capFile;
         v.edit = snap.edit;
@@ -640,17 +642,97 @@ app.put("/api/variations/:id/edit", (req, res) => {
 });
 
 // início/fim de cada clipe (gancho, corpo, CTA) dentro do vídeo concatenado
-async function variationSegments(v) {
+async function variationSegments(v, parts = v.parts) {
   const segs = [];
   let pos = 0;
-  for (const id of [v.hook, v.body, v.cta]) {
+  for (const [i, id] of [v.hook, v.body, v.cta].entries()) {
     const c = db.clips.find((x) => x.id === id);
     if (!c) return [];
-    const d = c.duration || (await duration(path.join(DIRS.clips, c.file)));
+    const full = c.duration || (await duration(path.join(DIRS.clips, c.file)));
+    const p = parts?.[i] || {};
+    const st = Math.max(0, +p.start || 0);
+    const en = +p.end > 0 ? Math.min(+p.end, full) : full;
+    const d = Math.max(0.2, en - st);
     segs.push([pos, pos + d]);
     pos += d;
   }
   return segs;
+}
+
+// ---------- partes: trecho (início/fim) e volume de gancho, corpo e CTA ----------
+const TARGET_LUFS = -16; // volume-alvo usual de redes sociais
+const defaultParts = () => [0, 1, 2].map(() => ({ start: 0, end: 0, gainDb: 0, mute: false }));
+const isDefaultParts = (ps) => ps.every((p) => !p.start && !p.end && !p.gainDb && !p.mute);
+function normParts(ps) {
+  if (!Array.isArray(ps) || ps.length !== 3) return null;
+  const n = (x, a, b) => Math.min(b, Math.max(a, Number.isFinite(+x) ? +x : 0));
+  return ps.map((p) => ({ start: n(p?.start, 0, 36000), end: n(p?.end, 0, 36000), gainDb: n(p?.gainDb, -40, 24), mute: !!p?.mute }));
+}
+const partClips = (v) => [v.hook, v.body, v.cta].map((id) => db.clips.find((x) => x.id === id));
+
+// Junta os 3 clipes aplicando corte e volume de cada parte; devolve o nome do arquivo novo
+async function assembleParts(v, parts, onFrac) {
+  const clips = partClips(v);
+  if (clips.some((c) => !c)) throw new Error("um dos clipes originais não existe mais");
+  const args = ["-y"], chains = [];
+  let total = 0;
+  for (const [i, c] of clips.entries()) {
+    const full = c.duration || (await duration(path.join(DIRS.clips, c.file)));
+    const p = parts[i] || {};
+    const start = Math.min(Math.max(0, +p.start || 0), Math.max(0, full - 0.2));
+    const end = +p.end > 0 ? Math.min(+p.end, full) : full;
+    if (end - start < 0.2) throw new Error(`o trecho da parte ${i + 1} ficou curto demais`);
+    const gain = Math.max(-40, Math.min(24, +p.gainDb || 0));
+    const vol = p.mute ? "volume=0" : gain ? `volume=${gain}dB,alimiter=limit=0.97` : "anull"; // limitador evita estourar ao aumentar
+    args.push("-i", path.join(DIRS.clips, c.file));
+    chains.push(
+      `[${i}:v]trim=start=${start.toFixed(3)}:end=${end.toFixed(3)},setpts=PTS-STARTPTS[v${i}]`,
+      `[${i}:a]atrim=start=${start.toFixed(3)}:end=${end.toFixed(3)},asetpts=PTS-STARTPTS,${vol}[a${i}]`
+    );
+    total += end - start;
+  }
+  chains.push("[v0][a0][v1][a1][v2][a2]concat=n=3:v=1:a=1[v][a]");
+  const name = `v${String(Date.now()).slice(-6)}-${v.id.slice(0, 4)}.mp4`;
+  currentJob?.files.push(name);
+  const script = path.join(DIRS.tmp, crypto.randomUUID() + ".txt");
+  fs.writeFileSync(script, chains.join(";"));
+  try {
+    await runFfmpegProgress([
+      ...args, "-filter_complex_script", script, "-map", "[v]", "-map", "[a]",
+      "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-r", String(FPS), "-pix_fmt", "yuv420p",
+      "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2", "-movflags", "+faststart", path.join(DIRS.out, name),
+    ], total, onFrac);
+  } finally {
+    fs.rmSync(script, { force: true });
+  }
+  return name;
+}
+
+// volume integrado (LUFS) de um trecho de áudio
+async function measureLufs(file, start, end) {
+  const r = await runAll(ffmpegPath, ["-ss", String(start), "-to", String(end), "-i", file, "-vn", "-af", "ebur128=peak=true", "-f", "null", "-"]);
+  const m = [...r.err.matchAll(/I:\s+(-?\d+(?:\.\d+)?)\s+LUFS/g)].pop();
+  return m ? +m[1] : null;
+}
+// mede cada parte (já com o trecho escolhido) e calcula o ganho para chegar ao volume-alvo
+async function measureParts(v, parts, onFrac) {
+  const out = [];
+  for (const [i, c] of partClips(v).entries()) {
+    if (!c) throw new Error("um dos clipes originais não existe mais");
+    const full = c.duration || (await duration(path.join(DIRS.clips, c.file)));
+    const p = parts[i] || {};
+    const start = Math.max(0, +p.start || 0);
+    const end = +p.end > 0 ? Math.min(+p.end, full) : full;
+    const lufs = await measureLufs(path.join(DIRS.clips, c.file), start, end);
+    const silent = lufs === null || lufs < -55; // parte sem áudio: não mexe
+    out.push({ lufs, silent, gainDb: silent ? 0 : +Math.max(-20, Math.min(20, TARGET_LUFS - lufs)).toFixed(1) });
+    onFrac?.((i + 1) / 3);
+  }
+  return out;
+}
+async function equalizeParts(v, parts, onFrac) {
+  const m = await measureParts(v, parts, onFrac);
+  return parts.map((p, i) => ({ ...p, gainDb: m[i].gainDb }));
 }
 
 // corta pausas (opcional) -> transcreve -> aplica legenda + texto
@@ -692,7 +774,7 @@ async function captionJob(v, { language = "pt", captions = {}, cut = null, text 
 }
 
 // Edição incremental depois de gerar: mexe só no que foi pedido (cut / captions / text) e mantém o resto.
-async function applyOps(v, { language = "pt", captions = null, cut = null, text = null, remove = null } = {}) {
+async function applyOps(v, { language = "pt", captions = null, cut = null, text = null, remove = null, parts = null, equalize = false } = {}) {
   v.cap = "processing";
   save(db);
   let pg = progress(v, [{ label: "Preparando", w: 1 }]);
@@ -701,36 +783,58 @@ async function applyOps(v, { language = "pt", captions = null, cut = null, text 
   try {
     const prev = v.edit || {};
     const prevCap = prev.captions || {};
+    // partes: trechos e volume. Mudar a base refaz o corte de pausas e, se o tempo mudar, a legenda.
+    const rmParts = !!remove?.parts && !!v.parts;
+    const reparts = !!parts || !!equalize || rmParts;
+    const oldParts = v.parts || defaultParts();
+    let newParts = rmParts ? defaultParts() : normParts(parts) || oldParts;
+    const trimsChanged = reparts && newParts.some((p, i) => (p.start || 0) !== (oldParts[i].start || 0) || (p.end || 0) !== (oldParts[i].end || 0));
+    const prevCut = v.cutInfo ? { enabled: true, minPause: v.cutInfo.minPause, keep: 0.1 } : null; // pedido de corte anterior (mesmo que não tenha achado pausa)
+    const removeCut = !!remove?.cut && !cut;
     const rmCut = !!remove?.cut && !cut && !!v.baseFile;   // tirar o corte: volta ao vídeo original
+    const effCut = cut || (reparts && !removeCut ? prevCut : null); // ao refazer a base, repete o corte que já existia
     const capOn = captions ? true : remove?.captions ? false : !!prevCap.enabled;
-    const needT = capOn && (captions || cut || rmCut || !(prevCap.words || []).length);
+    const needT = capOn && (captions || effCut || rmCut || (reparts && trimsChanged) || !(prevCap.words || []).length);
     steps = [
-      ...(cut ? [{ label: "Cortando pausas", w: 4 }] : []),
+      ...(equalize ? [{ label: "Medindo o volume", w: 2 }] : []),
+      ...(reparts ? [{ label: "Montando as partes", w: 4 }] : []),
+      ...(effCut ? [{ label: "Cortando pausas", w: 4 }] : []),
       ...(needT ? [{ label: "Transcrevendo a fala", w: 5 }] : []),
       { label: "Aplicando legenda e texto", w: 3 },
     ];
     pg = progress(v, steps);
     let si = 0;
-    let baseChanged = false;
-    if (cut) {
+    if (equalize) {
+      pg.start(si++);
+      newParts = await equalizeParts(v, newParts, (f) => pg.frac(f));
+      checkCancel();
+    }
+    if (reparts) {
+      pg.start(si++);
+      const name = await assembleParts(v, newParts, (f) => pg.frac(f));
+      checkCancel();
+      trashFile(v.file);
+      v.file = name;
+      if (v.baseFile) { trashFile(v.baseFile); v.baseFile = null; }
+      delete v.cutInfo;
+      if (isDefaultParts(newParts)) delete v.parts; else v.parts = newParts;
+    }
+    if (effCut) {
       pg.start(si++);
       const oldBase = v.baseFile;
       v.baseFile = null;
       const name = `cut-${Date.now()}-${v.id.slice(0, 4)}.mp4`;
       currentJob?.files.push(name);
-      const minPause = Math.min(10, Math.max(0.2, +cut.minPause || 2));
-      const removed = await cutPauses(path.join(DIRS.out, v.file), path.join(DIRS.out, name), { ...cut, minPause, segments: await variationSegments(v) }, (f) => pg.frac(f));
+      const minPause = Math.min(10, Math.max(0.2, +effCut.minPause || 2));
+      const removed = await cutPauses(path.join(DIRS.out, v.file), path.join(DIRS.out, name), { ...effCut, minPause, segments: await variationSegments(v, newParts) }, (f) => pg.frac(f));
       if (removed > 0) v.baseFile = name;
       v.cutInfo = { removed: +removed.toFixed(1), minPause };
       if (oldBase && oldBase !== v.baseFile) trashFile(oldBase);
-      baseChanged = true; // o vídeo-base mudou: o tempo das palavras antigas deixa de valer
       checkCancel();
     }
-    if (rmCut) {
-      trashFile(v.baseFile);
-      v.baseFile = null;
+    if (removeCut) {
+      if (v.baseFile) { trashFile(v.baseFile); v.baseFile = null; }
       delete v.cutInfo;
-      baseChanged = true; // sem o corte o tempo das palavras muda: precisa transcrever de novo se a legenda ficar
     }
     const base = path.join(DIRS.out, v.baseFile || v.file);
     const { words: prevWords = [], enabled: _e, ...prevStyle } = prevCap;
@@ -741,11 +845,11 @@ async function applyOps(v, { language = "pt", captions = null, cut = null, text 
       checkCancel();
       if (!words.length) throw new Error("nenhuma fala detectada");
     }
-    let texts = remove?.texts ? [] : prev.texts || [];
+    const dur = await duration(base);
+    let texts = (remove?.texts ? [] : prev.texts || []).map((t) => (t.whole ? { ...t, end: dur } : t)); // texto "vídeo todo" acompanha a nova duração
     if (text && String(text.content || "").trim()) {
-      const dur = await duration(base);
       const start = Math.max(0, +text.start || 0);
-      texts = [{ ...text, text: String(text.content).trim(), start, end: Math.min(dur, Math.max(start + 0.5, +text.end || start + 3)) }];
+      texts = [{ ...text, text: String(text.content).trim(), start, end: Math.min(dur, Math.max(start + 0.5, +text.end || start + 3)), whole: (+text.end || 0) >= 900 }];
     }
     v.edit = { captions: { ...(captions || prevStyle), enabled: capOn, words: capOn ? words : [] }, texts };
   } catch (e) {
@@ -780,12 +884,24 @@ app.post("/api/variations/cancel", (req, res) => {
   res.json({ cancelled });
 });
 
-// Tira edições dos vídeos selecionados: what = ["captions", "texts", "cut"] (ou "all" = voltar ao original)
+// Mede o volume de cada parte (com os trechos informados) e sugere o ganho para igualar
+app.post("/api/variations/:id/loudness", async (req, res) => {
+  const v = db.variations.find((x) => x.id === req.params.id);
+  if (!v || v.status !== "ready") return res.sendStatus(404);
+  try {
+    const parts = normParts(req.body?.parts) || v.parts || defaultParts();
+    res.json({ target: TARGET_LUFS, parts: await enqueueP(() => measureParts(v, parts)) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Tira edições dos vídeos selecionados: what = ["captions", "texts", "cut", "parts"] (ou "all" = voltar ao original)
 app.post("/api/variations/remove", (req, res) => {
   const { ids = [], what = [], language = "pt" } = req.body || {};
   const all = what.includes("all");
-  const remove = { captions: all || what.includes("captions"), texts: all || what.includes("texts"), cut: all || what.includes("cut") };
-  if (!remove.captions && !remove.texts && !remove.cut) return res.status(400).json({ error: "Escolha o que remover." });
+  const remove = { captions: all || what.includes("captions"), texts: all || what.includes("texts"), cut: all || what.includes("cut"), parts: all || what.includes("parts") };
+  if (!remove.captions && !remove.texts && !remove.cut && !remove.parts) return res.status(400).json({ error: "Escolha o que remover." });
   const targets = db.variations.filter((v) => ids.includes(v.id) && v.status === "ready" && v.cap !== "processing");
   if (!targets.length) return res.status(400).json({ error: "Nenhuma variação pronta selecionada." });
   for (const v of targets) queueVariationJob(v, () => applyOps(v, { language, remove }));
@@ -794,13 +910,14 @@ app.post("/api/variations/remove", (req, res) => {
 });
 
 app.post("/api/variations/apply", (req, res) => {
-  const { ids = [], language = "pt", captions = null, cut = null, text = null } = req.body || {};
+  const { ids = [], language = "pt", captions = null, cut = null, text = null, parts = null, equalize = false } = req.body || {};
   const hasText = !!String(text?.content || "").trim();
-  if (!captions && !cut && !hasText) return res.status(400).json({ error: "Escolha ao menos uma opção: cortar pausas, legenda ou texto na tela." });
+  if (parts && !normParts(parts)) return res.status(400).json({ error: "Partes inválidas." });
+  if (!captions && !cut && !hasText && !parts && !equalize) return res.status(400).json({ error: "Escolha ao menos uma opção: cortar pausas, legenda, texto na tela ou volume." });
   const targets = db.variations.filter((v) => ids.includes(v.id) && v.status === "ready" && v.cap !== "processing");
   if (!targets.length) return res.status(400).json({ error: "Nenhuma variação pronta selecionada." });
   for (const v of targets) {
-    queueVariationJob(v, () => applyOps(v, { language, captions, cut, text: hasText ? text : null }));
+    queueVariationJob(v, () => applyOps(v, { language, captions, cut, text: hasText ? text : null, parts, equalize: !!equalize }));
   }
   save(db);
   res.json({ queued: targets.length });

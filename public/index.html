@@ -86,6 +86,22 @@
   .nav a { display:inline-flex; align-items:center; gap:6px; padding:7px 12px; border-radius:8px; color:var(--text-2); text-decoration:none; font-weight:500; transition:background-color .15s, color .15s }
   .nav a:hover { background:var(--raised); color:var(--text) }
   .nav a.on { background:var(--raised); color:var(--text) }
+  .ublock { padding:22px 0; border-top:1px solid var(--line) }
+  .ublock:first-of-type { border-top:0; padding-top:4px }
+  .ublock h3 { font-size:16px; font-weight:600; margin-bottom:4px }
+  .ublock h3 .count { color:var(--text-3); font-weight:500 }
+  .ublock > p { color:var(--text-3); margin-bottom:12px; max-width:70ch }
+  .urow { display:flex; align-items:center; gap:12px; padding:12px 0; border-top:1px solid var(--line) }
+  .urow:first-of-type { border-top:0 }
+  .urow .main { flex:1; min-width:0 }
+  .urow .main b { display:block; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .urow .main span { color:var(--text-3); font-size:12.5px }
+  .invbox { margin-top:14px; max-width:620px }
+  .invbox input { font-variant-numeric:normal }
+  dialog { border:0; border-radius:14px; background:var(--panel); color:var(--text); box-shadow:var(--shadow); padding:0; width:min(420px, calc(100% - 32px)) }
+  dialog::backdrop { background:rgba(5,6,8,.74) }
+  .dlg { display:grid; gap:14px; padding:20px }
+  .dlg h2 { font-size:17px; font-weight:600 }
   #headtools { margin-left:auto; display:flex; align-items:center; gap:8px; min-width:0 }
   #headtools .who { max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; color:var(--text-3) }
   .nav .count { color:var(--text-3); font-variant-numeric:tabular-nums }
@@ -409,6 +425,7 @@
   <h1 class="brand"><span class="mark"><svg class="i"><use href="#i-film"/></svg></span><span class="name">Variações de Criativo</span></h1>
   <nav class="nav" aria-label="Seções">
     <a href="#projetos" data-view="home">Projetos</a>
+    <a href="#usuarios" data-view="users" id="navusers" hidden>Usuários</a>
     <a href="#referencias" data-view="refs">Referências <span id="refcount" class="count"></span></a>
   </nav>
   <div id="headtools"></div>
@@ -417,6 +434,17 @@
   <svg class="i"><use href="#i-alert"/></svg>
   <div><b>Os dados não estão sendo salvos de forma permanente.</b> Por isso tudo some (inclusive as referências) quando o sistema atualiza ou reinicia. <span id="storereason"></span> No EasyPanel: aba <b>Mounts → Add Mount → Volume</b>, com Mount Path <b>/data</b>, e faça <b>Deploy</b> de novo.</div>
 </div>
+
+<dialog id="pwdlg">
+  <form class="dlg" id="pwform" autocomplete="off">
+    <h2 id="pwtitle">Trocar senha</h2>
+    <label class="fl" id="pwcurwrap">Senha atual <input type="password" id="pwcur" autocomplete="current-password"></label>
+    <label class="fl">Nova senha <input type="password" id="pwnew" autocomplete="new-password"></label>
+    <label class="fl">Repita a nova senha <input type="password" id="pwnew2" autocomplete="new-password"></label>
+    <p class="hint is-warn" id="pwerr" hidden style="margin:0"></p>
+    <div class="bar"><button type="button" class="line" id="pwcancel">Cancelar</button><button type="submit" id="pwok">Salvar senha</button></div>
+  </form>
+</dialog>
 
 <div id="authwarn" class="banner" role="alert" hidden>
   <svg class="i"><use href="#i-alert"/></svg>
@@ -428,6 +456,37 @@
     <section class="sec" style="margin-top:0">
       <div class="sec-head"><h2>Projetos</h2><p>Cada projeto guarda os vídeos, as variações e as edições de um anúncio. Tudo é salvo automaticamente.</p></div>
       <div class="pgrid" id="projects"></div>
+    </section>
+  </div>
+
+  <div id="view-users" hidden>
+    <section class="sec" style="margin-top:0">
+      <div class="sec-head"><h2>Usuários</h2><p>Quem tem acesso ao sistema. Cada pessoa vê só os projetos que ela criou; você, como administrador, vê todos.</p></div>
+
+      <div class="ublock">
+        <h3>Convidar uma pessoa</h3>
+        <p>Gere um link e envie para ela. Ela cria a própria senha e entra. O link funciona uma vez só e vale por 7 dias.</p>
+        <form id="invform" class="inl" style="max-width:620px">
+          <input type="text" id="invemail" placeholder="E-mail da pessoa (opcional: o link só serve para esse e-mail)" aria-label="E-mail da pessoa" style="flex:1 1 280px;width:auto" autocomplete="off">
+          <button type="submit">Gerar link de convite</button>
+        </form>
+        <div class="invbox" id="invresult" hidden>
+          <label class="fl">Link do convite (envie para a pessoa)
+            <span class="inl" style="flex-wrap:nowrap"><input type="text" id="invlink" readonly><button class="sm" id="invcopy" type="button">Copiar</button></span>
+          </label>
+          <p class="hint">Copie agora: por segurança o link não aparece de novo. Se perder, gere outro.</p>
+        </div>
+      </div>
+
+      <div class="ublock">
+        <h3>Com acesso <span class="count" id="ucount"></span></h3>
+        <div id="ulist"></div>
+      </div>
+
+      <div class="ublock" id="iblock" hidden>
+        <h3>Convites pendentes</h3>
+        <div id="ilist"></div>
+      </div>
     </section>
   </div>
 
@@ -746,6 +805,13 @@ async function refresh() {
     renderHome();
     return;
   }
+  if (view === "users") {
+    const r = await fetch("/api/users");
+    if (!r.ok) { location.hash = "#projetos"; return; }
+    usersData = await r.json();
+    renderUsers();
+    return;
+  }
   const r = await fetch(view === "main" ? `/api/state?project=${P}` : "/api/state");
   if (!r.ok) return;
   state = await r.json();
@@ -780,6 +846,7 @@ function renderHome() {
           <h3 title="${esc(p.name)}">${esc(p.name)}</h3>
           <p>${p.clips} ${plural(p.clips, "vídeo", "vídeos")} · ${p.variations} ${plural(p.variations, "variação", "variações")}</p>
           <p>Atualizado ${relTime(p.updatedAt)}${p.busy ? " · em andamento" : ""}</p>
+          ${me.role === "admin" && me.auth && p.owner !== me.id ? `<p>De ${esc(p.ownerEmail || "outra pessoa")}</p>` : ""}
         </div>
         <div class="pacts">
           <button class="icon" data-prename="${p.id}" title="Renomear o projeto" aria-label="Renomear o projeto">${ic("pencil")}</button>
@@ -789,6 +856,16 @@ function renderHome() {
   ]);
 }
 document.addEventListener("submit", async (e) => {
+  if (e.target.id === "invform") {
+    e.preventDefault();
+    const r = await fetch("/api/users/invite", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ email: $("#invemail").value }) });
+    const j = await r.json();
+    if (!r.ok) return alert(j.error || "Não foi possível gerar o convite.");
+    $("#invlink").value = j.link; $("#invresult").hidden = false; $("#invemail").value = "";
+    $("#invlink").focus(); $("#invlink").select();
+    refresh();
+    return;
+  }
   if (e.target.id !== "newproj") return;
   e.preventDefault();
   const r = await fetch("/api/projects", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ name: $("#pnewname").value }) });
@@ -799,7 +876,7 @@ document.addEventListener("submit", async (e) => {
 // ---------- navegação: #projetos (início) · #p/ID (projeto aberto) · #referencias ----------
 function route() {
   const h = location.hash, m = /^#p\/([\w-]+)/.exec(h);
-  const nv = m ? "main" : h === "#referencias" ? "refs" : "home", np = m ? m[1] : null;
+  const nv = m ? "main" : h === "#referencias" ? "refs" : h === "#usuarios" && me.role === "admin" && me.auth ? "users" : "home", np = m ? m[1] : null;
   if (nv !== view || np !== P) {   // trocou de projeto/tela: limpa o que era do anterior
     if ($("#modal").classList.contains("open")) closeEditor();
     sel.clear(); batchIds.clear(); vfilter = "all"; vq = ""; wantTreat = false;
@@ -812,8 +889,10 @@ function route() {
   $("#view-home").hidden = view !== "home";
   $("#view-main").hidden = view !== "main";
   $("#view-refs").hidden = view !== "refs";
+  $("#view-users").hidden = view !== "users";
   document.querySelectorAll(".nav a").forEach(a => a.classList.toggle("on", a.dataset.view === (view === "main" ? "home" : view)));
   window.scrollTo(0, 0);
+  $("#invresult").hidden = true;
   refresh();
 }
 window.addEventListener("hashchange", route);
@@ -1276,6 +1355,21 @@ $("#pren").onclick = async () => {
 document.addEventListener("click", async (e) => {
   const card = e.target.closest("[data-open]");
   if (card && !e.target.closest("button")) { location.hash = "#p/" + card.dataset.open; return; }
+  if (e.target.id === "invcopy") {
+    try { await navigator.clipboard.writeText($("#invlink").value); e.target.textContent = "Copiado"; }
+    catch { $("#invlink").select(); e.target.textContent = "Selecionado: use Ctrl+C"; }
+    setTimeout(() => { e.target.textContent = "Copiar"; }, 2200);
+    return;
+  }
+  if (e.target.dataset.upw) { const u = usersData.users.find(x => x.id === e.target.dataset.upw); openPw(u); return; }
+  if (e.target.dataset.udel) {
+    const u = usersData.users.find(x => x.id === e.target.dataset.udel);
+    if (!confirm(`Remover o acesso de ${u.email}?\n\nA pessoa sai do sistema na hora. Os ${u.projects} projeto(s) dela passam para você.`)) return;
+    await fetch(`/api/users/${u.id}`, { method:"DELETE" });
+    refresh();
+    return;
+  }
+  if (e.target.dataset.irev) { await fetch(`/api/users/invites/${e.target.dataset.irev}`, { method:"DELETE" }); refresh(); return; }
   if (e.target.dataset.prename) {
     const pr = projects.find(x => x.id === e.target.dataset.prename);
     const name = prompt("Novo nome do projeto:", pr?.name || "");
@@ -1354,20 +1448,75 @@ $("#gen").onclick = async () => {
   refresh();
 };
 
-// conta logada + botão Sair (e aviso se o servidor estiver sem login)
-(async () => {
+// conta logada: e-mail, papel, trocar senha e Sair (e aviso se o servidor estiver sem login)
+let me = { auth:false, id:"admin", role:"admin", email:null };
+async function loadMe() {
   try {
-    const me = await (await fetch("/api/me")).json();
+    me = await (await fetch("/api/me")).json();
     if (me.auth) {
-      $("#headtools").innerHTML = `<span class="who" title="${esc(me.email)}">${esc(me.email)}</span><button class="sm ghost" id="logout" title="Sair da conta">${ic("logout")}Sair</button>`;
+      $("#headtools").innerHTML = `<span class="who" title="${esc(me.email)}">${esc(me.email)}</span>`
+        + (me.role === "admin" ? `<span class="chip acc">Administrador</span>` : `<button class="sm ghost" id="mypw" title="Trocar a minha senha">Senha</button>`)
+        + `<button class="sm ghost" id="logout" title="Sair da conta">${ic("logout")}Sair</button>`;
       $("#logout").onclick = async () => { await _fetch("/api/logout", { method:"POST" }); location.href = "/login"; };
+      if ($("#mypw")) $("#mypw").onclick = () => openPw(null);
+      $("#navusers").hidden = me.role !== "admin";
     } else if (!["localhost", "127.0.0.1", "[::1]"].includes(location.hostname)) {
       $("#authwarn").hidden = false;
     }
   } catch {}
-})();
+}
 
-route();
+// ---------- usuários (só o administrador) ----------
+let usersData = null;
+function renderUsers() {
+  const d = usersData || { admin:{ email:"" }, users:[], invites:[] };
+  setText($("#ucount"), `(${d.users.length + 1})`);
+  const rel = (t) => new Date(t).toLocaleDateString("pt-BR");
+  $("#ulist").innerHTML = `
+    <div class="urow"><div class="main"><b>${esc(d.admin.email)}</b><span>Administrador · a senha é definida no servidor</span></div><span class="chip acc">Administrador</span></div>`
+    + d.users.map(u => `
+    <div class="urow">
+      <div class="main"><b>${esc(u.email)}</b><span>${u.projects} ${plural(u.projects, "projeto", "projetos")} · entrou em ${rel(u.createdAt)}</span></div>
+      <button class="sm line" data-upw="${u.id}">Trocar senha</button>
+      <button class="icon danger" data-udel="${u.id}" title="Remover o acesso" aria-label="Remover o acesso">${ic("trash")}</button>
+    </div>`).join("");
+  $("#iblock").hidden = !d.invites.length;
+  $("#ilist").innerHTML = d.invites.map(i => `
+    <div class="urow">
+      <div class="main"><b>${i.email ? esc(i.email) : "Qualquer e-mail"}</b><span>${i.expired ? "Expirou em " : "Vale até "}${rel(i.expiresAt)}</span></div>
+      ${i.expired ? `<span class="chip warn">Expirado</span>` : `<span class="chip">Pendente</span>`}
+      <button class="icon danger" data-irev="${i.id}" title="Cancelar o convite" aria-label="Cancelar o convite">${ic("x")}</button>
+    </div>`).join("");
+}
+
+// ---------- trocar senha (a própria, ou a de um membro, pelo administrador) ----------
+let pwTarget = null;
+function openPw(target) {
+  pwTarget = target;
+  $("#pwtitle").textContent = target ? `Nova senha para ${target.email}` : "Trocar a minha senha";
+  $("#pwcurwrap").hidden = !!target;
+  $("#pwform").reset(); $("#pwerr").hidden = true;
+  $("#pwdlg").showModal();
+  (target ? $("#pwnew") : $("#pwcur")).focus();
+}
+$("#pwcancel").onclick = () => $("#pwdlg").close();
+$("#pwform").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const err = (m) => { $("#pwerr").textContent = m; $("#pwerr").hidden = false; };
+  const next = $("#pwnew").value;
+  if (next.length < 8) return err("A nova senha precisa ter pelo menos 8 caracteres.");
+  if (next !== $("#pwnew2").value) return err("As duas senhas novas não são iguais.");
+  $("#pwok").disabled = true;
+  const r = pwTarget
+    ? await fetch(`/api/users/${pwTarget.id}/password`, { method:"PUT", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ password: next }) })
+    : await fetch("/api/me/password", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ current: $("#pwcur").value, next }) });
+  $("#pwok").disabled = false;
+  if (!r.ok) return err((await r.json()).error || "Não foi possível salvar.");
+  $("#pwdlg").close();
+  alert(pwTarget ? `Senha de ${pwTarget.email} alterada. Avise a pessoa.` : "Sua senha foi alterada.");
+});
+
+loadMe().then(() => route());
 setInterval(() => {
   if (view === "home") return;
   if (state.clips.some(c=>c.status==="processing"||c.prog) || state.refs.some(r=>r.status==="processing") || state.variations.some(v=>["queued","processing"].includes(v.status) || v.cap==="processing")) refresh();

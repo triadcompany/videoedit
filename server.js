@@ -55,6 +55,7 @@ db.projects ||= [];
     }
     orphans.forEach((x) => { x.project = first.id; });
   }
+  db.projects.forEach((p) => { p.owner ||= "admin"; });
 }
 // jobs que ficaram "processing" de uma execução anterior viram erro
 db.clips.forEach((c) => c.status === "processing" && (c.status = "error", c.error = "interrompido"));
@@ -539,8 +540,52 @@ async function renderVariation(v, pg = null, stepIdx = 0) {
 // ---------- API ----------
 const app = express();
 // login por e-mail e senha (APP_EMAIL e APP_PASSWORD no servidor; sem APP_PASSWORD o sistema fica aberto)
-setupAuth(app);
+const auth = setupAuth(app, {
+  dataDir: DATA,
+  projectCount: (uid) => db.projects.filter((p) => p.owner === uid).length,
+  onUserRemoved: (uid) => { db.projects.forEach((p) => { if (p.owner === uid) p.owner = "admin"; }); save(db); }, // os projetos de quem saiu ficam com o administrador
+});
 app.use(express.json({ limit: "5mb" }));
+
+// ---------- quem pode ver o quê ----------
+const isAdmin = (req) => req.user?.role === "admin";
+const canProject = (req, pid) => {
+  const p = db.projects.find((x) => x.id === pid);
+  return isAdmin(req) || !p || p.owner === req.user?.id;   // projeto inexistente: o erro normal da rota responde
+};
+const canVariation = (req, vid) => {
+  const v = db.variations.find((x) => x.id === vid);
+  return isAdmin(req) || !v || canProject(req, v.project);
+};
+// Toda rota da API que cita um projeto, clipe ou variação é checada aqui, antes de chegar à rota.
+// Sem permissão responde "não encontrado" (não revela que o item existe).
+app.use((req, res, next) => {
+  if (!req.path.startsWith("/api/") || isAdmin(req)) return next();
+  const pids = new Set();
+  const addP = (x) => x && pids.add(String(x));
+  addP(req.query.project); addP(req.body?.project);
+  const vids = [...(Array.isArray(req.body?.ids) ? req.body.ids : []), ...String(req.query.ids || "").split(",").filter(Boolean)];
+  for (const id of vids) addP(db.variations.find((x) => x.id === id)?.project);
+  const m = /^\/api\/(clips|variations|projects)\/([0-9a-f-]{36})/.exec(req.path);
+  if (m) {
+    if (m[1] === "projects") addP(m[2]);
+    else addP((m[1] === "clips" ? db.clips : db.variations).find((x) => x.id === m[2])?.project);
+  }
+  for (const pid of pids) if (!canProject(req, pid)) return res.status(404).json({ error: "Não encontrado." });
+  next();
+});
+// Os arquivos de vídeo também: ninguém abre o vídeo de outra pessoa nem sabendo o nome do arquivo.
+const mediaGuard = (kind) => (req, res, next) => {
+  if (isAdmin(req)) return next();
+  let f = "";
+  try { f = decodeURIComponent(req.path.slice(1)); } catch { return res.sendStatus(404); }
+  const project = kind === "clips"
+    ? db.clips.find((c) => c.file === f || c.tfile === f)?.project
+    : db.variations.find((v) => v.file === f || v.capFile === f || v.baseFile === f)?.project;
+  return project && canProject(req, project) ? next() : res.sendStatus(404);
+};
+app.use("/media/clips", mediaGuard("clips"));
+app.use("/media/output", mediaGuard("output"));
 app.use("/fonts", express.static(FONTS_DIR));
 app.use(express.static(path.join(__dirname, "public")));
 app.use("/media/clips", express.static(DIRS.clips));
@@ -605,13 +650,13 @@ const projectSummary = (p) => {
   const rv = vars.find((v) => v.status === "ready"), rc = clips.find((c) => c.status === "ready");
   const thumb = rv ? { dir: "output", file: rv.capFile || rv.baseFile || rv.file } : rc ? { dir: "clips", file: rc.tfile || rc.file } : null;
   const busy = vars.some((v) => v.cap === "processing" || v.status === "processing" || v.status === "queued") || clips.some((c) => c.status === "processing" || c.prog);
-  return { id: p.id, name: p.name, createdAt: p.createdAt, updatedAt: p.updatedAt, clips: clips.length, variations: vars.length, thumb, busy };
+  return { id: p.id, name: p.name, owner: p.owner, ownerEmail: auth.emailOf(p.owner), createdAt: p.createdAt, updatedAt: p.updatedAt, clips: clips.length, variations: vars.length, thumb, busy };
 };
-app.get("/api/projects", (_req, res) =>
-  res.json({ projects: [...db.projects].sort((a, b) => b.updatedAt - a.updatedAt).map(projectSummary), storage: storageInfo() }));
+app.get("/api/projects", (req, res) =>
+  res.json({ projects: db.projects.filter((p) => isAdmin(req) || p.owner === req.user?.id).sort((a, b) => b.updatedAt - a.updatedAt).map(projectSummary), storage: storageInfo() }));
 app.post("/api/projects", (req, res) => {
   const name = String(req.body?.name || "").trim().slice(0, 80) || `Projeto ${db.projects.length + 1}`;
-  const p = { id: crypto.randomUUID(), name, createdAt: Date.now(), updatedAt: Date.now() };
+  const p = { id: crypto.randomUUID(), name, owner: req.user?.id || "admin", createdAt: Date.now(), updatedAt: Date.now() };
   db.projects.push(p);
   save(db);
   res.json(projectSummary(p));
@@ -1180,7 +1225,7 @@ app.get("/api/variations/download", async (req, res) => {
 
 // Cancela edições na fila ou em andamento. ids: lista de ids, ou "all".
 app.post("/api/variations/cancel", (req, res) => {
-  const ids = req.body?.ids === "all" ? [...jobs.keys()] : Array.isArray(req.body?.ids) ? req.body.ids : [];
+  const ids = req.body?.ids === "all" ? [...jobs.keys()].filter((id) => canVariation(req, id)) : Array.isArray(req.body?.ids) ? req.body.ids : [];
   let cancelled = 0;
   for (const id of ids) {
     const job = jobs.get(id);

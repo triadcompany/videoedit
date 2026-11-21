@@ -41,6 +41,20 @@ db.refs ||= [];
 // estilo padrão das legendas (editável no painel e salvo junto com os dados)
 const CAPTION_DEFAULTS = { preset: "classica", font: "Poppins Medium", size: 68, yPct: 64, color: "#FFE600", wordsPerLine: 3, upper: false };
 db.defaults ||= { captions: { ...CAPTION_DEFAULTS } };
+// Projetos: cada um guarda seus clipes e variações (referências e estilo padrão são compartilhados).
+// Dados de antes dos projetos existirem entram num primeiro projeto.
+db.projects ||= [];
+{
+  const orphans = [...db.clips, ...db.variations].filter((x) => !x.project || !db.projects.some((p) => p.id === x.project));
+  if (orphans.length) {
+    let first = db.projects[0];
+    if (!first) {
+      first = { id: crypto.randomUUID(), name: "Meu primeiro projeto", createdAt: Date.now(), updatedAt: Date.now() };
+      db.projects.push(first);
+    }
+    orphans.forEach((x) => { x.project = first.id; });
+  }
+}
 // jobs que ficaram "processing" de uma execução anterior viram erro
 db.clips.forEach((c) => c.status === "processing" && (c.status = "error", c.error = "interrompido"));
 db.refs.forEach((r) => r.status === "processing" && (r.status = "error", r.error = "interrompido"));
@@ -578,15 +592,88 @@ function storageInfo() {
     catch { return { persistent: true, path: DATA }; }
   }
 }
-app.get("/api/state", (_, res) => res.json({ ...db, storage: storageInfo() }));
+// Estado do projeto aberto (?project=ID) + o que é compartilhado (referências, estilo padrão)
+app.get("/api/state", (req, res) => {
+  const pid = String(req.query.project || "");
+  const project = db.projects.find((p) => p.id === pid) || null;
+  res.json({
+    project: project && { id: project.id, name: project.name },
+    clips: project ? db.clips.filter((c) => c.project === pid) : [],
+    variations: project ? db.variations.filter((v) => v.project === pid) : [],
+    refs: db.refs,
+    defaults: db.defaults,
+    storage: storageInfo(),
+  });
+});
+
+// ---------- projetos ----------
+const projectSummary = (p) => {
+  const clips = db.clips.filter((c) => c.project === p.id), vars = db.variations.filter((v) => v.project === p.id);
+  const rv = vars.find((v) => v.status === "ready"), rc = clips.find((c) => c.status === "ready");
+  const thumb = rv ? { dir: "output", file: rv.capFile || rv.baseFile || rv.file } : rc ? { dir: "clips", file: rc.tfile || rc.file } : null;
+  const busy = vars.some((v) => v.cap === "processing" || v.status === "processing" || v.status === "queued") || clips.some((c) => c.status === "processing" || c.prog);
+  return { id: p.id, name: p.name, createdAt: p.createdAt, updatedAt: p.updatedAt, clips: clips.length, variations: vars.length, thumb, busy };
+};
+app.get("/api/projects", (_req, res) =>
+  res.json({ projects: [...db.projects].sort((a, b) => b.updatedAt - a.updatedAt).map(projectSummary), storage: storageInfo() }));
+app.post("/api/projects", (req, res) => {
+  const name = String(req.body?.name || "").trim().slice(0, 80) || `Projeto ${db.projects.length + 1}`;
+  const p = { id: crypto.randomUUID(), name, createdAt: Date.now(), updatedAt: Date.now() };
+  db.projects.push(p);
+  save(db);
+  res.json(projectSummary(p));
+});
+app.put("/api/projects/:id", (req, res) => {
+  const p = db.projects.find((x) => x.id === req.params.id);
+  const name = String(req.body?.name || "").trim().slice(0, 80);
+  if (!p || !name) return res.sendStatus(400);
+  p.name = name;
+  p.updatedAt = Date.now();
+  save(db);
+  res.json(projectSummary(p));
+});
+app.delete("/api/projects/:id", (req, res) => {
+  const p = db.projects.find((x) => x.id === req.params.id);
+  if (!p) return res.sendStatus(404);
+  if (projectSummary(p).busy) return res.status(409).json({ error: "Há vídeos sendo convertidos ou editados neste projeto. Espere terminar ou cancele antes de excluir." });
+  const rm = (dir, f) => f && fs.rmSync(path.join(dir, f), { force: true });
+  for (const c of db.clips.filter((x) => x.project === p.id)) { rm(DIRS.clips, c.file); rm(DIRS.clips, c.tfile); }
+  for (const v of db.variations.filter((x) => x.project === p.id)) { rm(DIRS.out, v.file); rm(DIRS.out, v.capFile); rm(DIRS.out, v.baseFile); jobs.delete(v.id); }
+  db.clips = db.clips.filter((c) => c.project !== p.id);
+  db.variations = db.variations.filter((v) => v.project !== p.id);
+  db.projects = db.projects.filter((x) => x !== p);
+  save(db);
+  res.sendStatus(204);
+});
+// "atualizado em": qualquer alteração (upload, tratamento, geração, edição, exclusão) marca o projeto como mexido agora
+app.use((req, res, next) => {
+  if (req.method === "GET" || req.method === "HEAD") return next();
+  const pids = new Set();
+  const add = (x) => x && pids.add(x);
+  add(req.query.project); add(req.body?.project);
+  for (const vid of Array.isArray(req.body?.ids) ? req.body.ids : []) add(db.variations.find((x) => x.id === vid)?.project);
+  const m = /^\/api\/(clips|variations)\/([0-9a-f-]{36})/.exec(req.path);
+  if (m) add((m[1] === "clips" ? db.clips : db.variations).find((x) => x.id === m[2])?.project);
+  res.on("finish", () => {
+    if (res.statusCode >= 400) return;
+    let touched = false;
+    for (const id of pids) { const p = db.projects.find((x) => x.id === id); if (p) { p.updatedAt = Date.now(); touched = true; } }
+    if (touched) save(db);
+  });
+  next();
+});
 
 app.post("/api/clips/:type", upload.array("files"), (req, res) => {
   const { type } = req.params;
-  if (!TYPES.includes(type)) return res.status(400).json({ error: "tipo inválido" });
+  const project = db.projects.find((p) => p.id === req.query.project);
+  if (!TYPES.includes(type) || !project) {
+    (req.files || []).forEach((f) => fs.rm(f.path, { force: true }, () => {}));
+    return res.status(400).json({ error: !project ? "Projeto não encontrado." : "tipo inválido" });
+  }
   const created = req.files.map((f) => {
     const id = crypto.randomUUID();
     const clip = {
-      id, type,
+      id, type, project: project.id,
       name: Buffer.from(f.originalname, "latin1").toString("utf8"),
       file: id + ".mp4",
       status: "processing",
@@ -682,11 +769,12 @@ app.post("/api/clips/:id/unreview", (req, res) => {
 });
 
 // ---- tratamento: mede o volume de todos os clipes (já com o corte) e sugere o ganho para igualar ----
-app.post("/api/treat/loudness", async (_req, res) => {
+app.post("/api/treat/loudness", async (req, res) => {
+  const pid = req.body?.project;
   try {
     const clips = await enqueueP(async () => {
       const out = {};
-      for (const c of db.clips.filter((x) => x.status === "ready")) {
+      for (const c of db.clips.filter((x) => x.status === "ready" && x.project === pid)) {
         const full = c.duration || (await duration(path.join(DIRS.clips, c.file)));
         const t = c.trim || {};
         const start = Math.max(0, +t.start || 0);
@@ -706,7 +794,7 @@ app.post("/api/treat/loudness", async (_req, res) => {
 // ---- tratamento: aplica corte + volume (gera a versão tratada de cada clipe que mudou) ----
 app.post("/api/treat/finalize", (req, res) => {
   const gains = req.body?.gains || {};
-  const ready = db.clips.filter((c) => c.status === "ready");
+  const ready = db.clips.filter((c) => c.status === "ready" && c.project === req.body?.project);
   if (ready.some((c) => !c.reviewed)) return res.status(400).json({ error: "Ainda há vídeos sem tratamento: confirme o corte de cada um (OK, próximo)." });
   for (const c of ready) if (gains[c.id] !== undefined) c.gainDb = Math.max(-30, Math.min(24, +gains[c.id] || 0));
   const todo = ready.filter((c) => needsRender(c) || c.treatError);
@@ -1244,9 +1332,12 @@ app.post("/api/generate", (req, res) => {
   const ref = db.refs.find((r) => r.id === req.body?.refId && r.status === "ready");
   const language = req.body?.language || "pt";
   const quickCut = req.body?.cut?.enabled ? req.body.cut : null; // opção "cortar respiração" do topo
-  const by = (t) => db.clips.filter((c) => c.type === t && c.status === "ready");
+  const pid = req.body?.project;
+  if (!db.projects.some((p) => p.id === pid)) return res.status(400).json({ error: "Projeto não encontrado." });
+  const mine = db.clips.filter((c) => c.project === pid);
+  const by = (t) => mine.filter((c) => c.type === t && c.status === "ready");
   const [hs, bs, cs] = TYPES.map(by);
-  if (db.clips.some((c) => c.status === "ready" && (!c.reviewed || needsRender(c) || c.prog)))
+  if (mine.some((c) => c.status === "ready" && (!c.reviewed || needsRender(c) || c.prog)))
     return res.status(400).json({ error: "Termine o tratamento dos vídeos (corte e equalização) antes de gerar as variações." });
   if (!hs.length || !bs.length || !cs.length)
     return res.status(400).json({ error: "Precisa de ao menos 1 gancho, 1 corpo e 1 CTA prontos." });
@@ -1255,7 +1346,7 @@ app.post("/api/generate", (req, res) => {
   for (const h of hs) for (const b of bs) for (const c of cs) {
     if (db.variations.some((v) => v.hook === h.id && v.body === b.id && v.cta === c.id && v.status !== "error")) continue;
     const v = {
-      id: crypto.randomUUID(), hook: h.id, body: b.id, cta: c.id,
+      id: crypto.randomUUID(), project: pid, hook: h.id, body: b.id, cta: c.id,
       label: `${h.name} + ${b.name} + ${c.name}`,
       file: null, status: "queued",
       ...(ref || quickCut ? { cap: "processing" } : {}),

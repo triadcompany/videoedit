@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="noindex">
+<title>Entrar · Variações de Criativo</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg:#0d0f13; --surface:#181c22; --field:#0f1216; --line:#272d36; --line-2:#363e4a;
+    --text:#eceff4; --text-2:#aab2bf; --text-3:#8790a0;
+    --accent:#6b5bf5; --accent-lo:#5a4be0; --accent-hi:#a59bff; --err:#ff7a7a; --err-soft:rgba(255,122,122,.13);
+    --font:ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing:border-box }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; padding:24px; background:var(--bg); color:var(--text); font:14px/1.5 var(--font); -webkit-font-smoothing:antialiased }
+  ::selection { background:rgba(135,120,255,.45); color:#fff }
+  :focus-visible { outline:2px solid var(--accent-hi); outline-offset:2px }
+  main { width:100%; max-width:380px }
+  .brand { display:flex; align-items:center; gap:12px; margin-bottom:28px }
+  .mark { display:grid; place-items:center; width:38px; height:38px; border-radius:11px; background:var(--accent-lo); color:#fff }
+  .mark svg, .eye svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round }
+  .brand b { font-size:16px; font-weight:600; letter-spacing:-.01em }
+  h1 { margin:0 0 4px; font-size:24px; font-weight:600; letter-spacing:-.015em }
+  .lead { margin:0 0 22px; color:var(--text-3) }
+  form { display:grid; gap:16px; padding:22px; border:1px solid var(--line); border-radius:14px; background:var(--surface) }
+  label { display:grid; gap:6px; font-size:13px; color:var(--text-2); font-weight:500 }
+  .field { position:relative }
+  input { width:100%; min-height:42px; padding:0 12px; border:1px solid var(--line-2); border-radius:9px; background:var(--field); color:var(--text); font:inherit; caret-color:var(--accent-hi); transition:border-color .15s }
+  input:hover { border-color:var(--text-3) }
+  input[type=password], .has-eye input { padding-right:44px }
+  .eye { position:absolute; right:4px; top:50%; transform:translateY(-50%); display:grid; place-items:center; width:34px; height:34px; border:0; border-radius:8px; background:transparent; color:var(--text-3); cursor:pointer }
+  .eye:hover { background:rgba(255,255,255,.06); color:var(--text) }
+  button.go { min-height:44px; border:0; border-radius:10px; background:var(--accent); color:#fff; font:inherit; font-weight:600; font-size:15px; cursor:pointer; transition:background-color .15s }
+  button.go:hover:not(:disabled) { background:var(--accent-lo) }
+  button.go:disabled { opacity:.55; cursor:progress }
+  .err { display:none; padding:10px 12px; border-radius:9px; background:var(--err-soft); color:var(--err); font-size:13.5px }
+  .err.show { display:block }
+  .foot { margin:18px 2px 0; color:var(--text-3); font-size:12.5px }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">
+    <span class="mark"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4.5" width="18" height="15" rx="3"/><path d="M10 9.2v5.6l4.6-2.8z"/></svg></span>
+    <b>Variações de Criativo</b>
+  </div>
+  <h1>Entrar</h1>
+  <p class="lead">Use o e-mail e a senha de acesso do sistema.</p>
+  <form id="f" novalidate>
+    <label>E-mail
+      <input id="email" name="email" type="text" inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
+    </label>
+    <label>Senha
+      <span class="field has-eye">
+        <input id="pw" name="password" type="password" autocomplete="current-password" required>
+        <button class="eye" type="button" id="eye" aria-label="Mostrar a senha" title="Mostrar a senha"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      </span>
+    </label>
+    <div class="err" id="err" role="alert"></div>
+    <button class="go" id="go" type="submit">Entrar</button>
+  </form>
+  <p class="foot">O acesso fica salvo neste navegador por 30 dias.</p>
+</main>
+<script>
+  const $ = (s) => document.querySelector(s);
+  // só volta para endereços do próprio sistema (evita redirecionar para outro site)
+  const q = new URLSearchParams(location.search).get("next") || "/";
+  const next = q.startsWith("/") && !q.startsWith("//") ? q : "/";
+  $("#eye").onclick = () => {
+    const show = $("#pw").type === "password";
+    $("#pw").type = show ? "text" : "password";
+    $("#eye").setAttribute("aria-label", show ? "Esconder a senha" : "Mostrar a senha");
+    $("#eye").title = show ? "Esconder a senha" : "Mostrar a senha";
+  };
+  $("#f").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const err = $("#err"), go = $("#go");
+    err.classList.remove("show");
+    if (!$("#email").value.trim() || !$("#pw").value) { err.textContent = "Preencha o e-mail e a senha."; err.classList.add("show"); return; }
+    go.disabled = true; go.textContent = "Entrando…";
+    try {
+      const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: $("#email").value, password: $("#pw").value }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || "Não foi possível entrar.");
+      location.replace(next + location.hash);   // mantém o #projeto de onde a pessoa veio
+    } catch (x) {
+      err.textContent = x.message; err.classList.add("show");
+      go.disabled = false; go.textContent = "Entrar";
+      $("#pw").select();
+    }
+  });
+</script>
+</body>
+</html>

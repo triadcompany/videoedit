@@ -9,6 +9,7 @@ import crypto from "node:crypto";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { buildAss, FONTS_DIR, FONTS } from "./edit.js";
+import { setupAuth } from "./auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA = process.env.DATA_DIR || path.join(__dirname, "data");
@@ -537,16 +538,8 @@ async function renderVariation(v, pg = null, stepIdx = 0) {
 
 // ---------- API ----------
 const app = express();
-// senha de acesso (defina APP_PASSWORD no servidor; sem ela o painel fica aberto)
-if (process.env.APP_PASSWORD) {
-  const user = process.env.APP_USER || "admin";
-  const expected = "Basic " + Buffer.from(`${user}:${process.env.APP_PASSWORD}`).toString("base64");
-  app.use((req, res, next) => {
-    const got = req.headers.authorization || "";
-    if (got.length === expected.length && crypto.timingSafeEqual(Buffer.from(got), Buffer.from(expected))) return next();
-    res.set("WWW-Authenticate", 'Basic realm="Variacoes de Criativo"').status(401).send("Acesso restrito");
-  });
-}
+// login por e-mail e senha (APP_EMAIL e APP_PASSWORD no servidor; sem APP_PASSWORD o sistema fica aberto)
+setupAuth(app);
 app.use(express.json({ limit: "5mb" }));
 app.use("/fonts", express.static(FONTS_DIR));
 app.use(express.static(path.join(__dirname, "public")));
